@@ -1,5 +1,11 @@
 # CoTerm — AI-native Terminal Session Runtime
 
+<div align="center">
+
+**English** | [**中文**](README.zh-CN.md)
+
+</div>
+
 > **The runtime layer between AI and the terminal.**
 
 CoTerm is a headless terminal session runtime that manages PTY-backed shell sessions and exposes them to humans and AI through a unified **Session API** and **MCP (Model Context Protocol)** server. It is **not** another terminal emulator — it is the shared session layer that any terminal, AI agent, or IDE can plug into.

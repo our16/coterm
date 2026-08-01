@@ -1,5 +1,11 @@
 # CoTerm — AI 原生终端会话运行时
 
+<div align="center">
+
+[**English**](README.md) | **中文**
+
+</div>
+
 > **AI 与终端之间的运行时层。**
 
 CoTerm 是一个无头（headless）终端会话运行时：统一管理基于 PTY 的 shell 会话，并通过统一的 **Session API** 和 **MCP（Model Context Protocol）** 服务，把会话开放给人类与 AI。它**不是**又一个终端模拟器——而是任何终端、AI Agent、IDE 都可以接入的共享会话层。
