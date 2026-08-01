@@ -456,28 +456,13 @@ function execViewCommandLine(sessionId: string, cmdLine: string): boolean {
   const first = trimmed.split(/\s+/)[0] ?? '';
   const handler = VIEW_COMMANDS[first];
   if (!handler) return false;
-  // Echo the line locally (the shell never saw it), then print the result.
-  process.stdout.write(`\r\n\x1b[36m${first}\x1b[0m${trimmed.slice(first.length)}\r\n`);
   const arg = trimmed.slice(first.length).trim();
   void handler(sessionId, arg).then((result) => {
-    process.stdout.write(`\x1b[2m${result}\x1b[0m\r\n`);
+    process.stdout.write(`\x1b[36m${first}\x1b[0m${trimmed.slice(first.length)}\r\n\x1b[2m${result}\x1b[0m\r\n`);
   }).catch((err) => {
-    process.stdout.write(`\x1b[31m[${first} error]\x1b[0m ${(err as Error).message}\r\n`);
+    process.stdout.write(`\x1b[36m${first}\x1b[0m ${(err as Error).message}\r\n`);
   });
   return true;
-}
-
-/** Whether the buffered input is (a prefix of) a built-in view command. */
-function isPendingViewCommand(buf: string): boolean {
-  const t = buf.trim();
-  if (!t) return false;
-  for (const name of Object.keys(VIEW_COMMANDS)) {
-    // Full command (`list`) or command + args (`status <id>`).
-    if (t === name || t.startsWith(name + ' ')) return true;
-    // Partial input that could become a command (`l`, `li`, `lis` ...).
-    if (name.startsWith(t)) return true;
-  }
-  return false;
 }
 
 /** Is the current terminal VT/ANSI capable (needed for interactive attach)? */
@@ -538,11 +523,12 @@ async function attachToSession(sessionId: string): Promise<void> {
   let done = false;
   let prefixA = false;
 
-  // Batch keystrokes and send them as a single write. Per-character HTTP
-  // writes would race with AI commands and split multi-byte sequences (e.g.
-  // the arrow key escape `\x1b[A`), garbling input/ordering. We flush on
-  // Enter, Ctrl+C, or a short idle gap so typing feels live but stays atomic.
+  // Keystrokes are streamed to the shell as-is (so typing feels live and the
+  // shell echoes them). We additionally track the current line; on Enter, if
+  // the line is a built-in CoTerm command (list/status/read/run/...), we wipe
+  // the echoed characters off the shell's input and run it locally instead.
   let inputBuffer = '';
+  let lineBuf = '';
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const flushInput = () => {
     if (flushTimer) {
@@ -553,6 +539,12 @@ async function attachToSession(sessionId: string): Promise<void> {
     const chunk = inputBuffer;
     inputBuffer = '';
     callDaemon('terminal_write', { sessionId, data: chunk, requester: 'human' }).catch(() => {});
+  };
+
+  const sendBackspaces = (count: number) => {
+    if (count <= 0) return;
+    // Erase the echoed command from the shell's input line (before Enter).
+    callDaemon('terminal_write', { sessionId, data: '\x08'.repeat(count), requester: 'human' }).catch(() => {});
   };
 
   const onData = (chunk: Buffer) => {
@@ -571,25 +563,35 @@ async function attachToSession(sessionId: string): Promise<void> {
         continue;
       }
       inputBuffer += ch;
+
+      // Track the current line for Enter-time command detection.
+      if (ch === '\r' || ch === '\n') {
+        // Enter: check for a built-in command BEFORE sending the Enter.
+        const cmd = lineBuf.trim();
+        if (execViewCommandLine(sessionId, cmd)) {
+          // Wipe anything the shell may have echoed (if it was already
+          // flushed) and drop any still-buffered input — the view command
+          // handled the line; don't let `list\r` reach the shell.
+          sendBackspaces(lineBuf.length);
+          inputBuffer = '';
+          lineBuf = '';
+          return;
+        }
+        lineBuf = '';
+      } else if (ch === '\x03') {
+        lineBuf = '';
+      } else if (ch === '\x08' || ch === '\x7f') {
+        lineBuf = lineBuf.slice(0, -1);
+      } else {
+        lineBuf += ch;
+      }
     }
     if (flushTimer) {
       clearTimeout(flushTimer);
       flushTimer = null;
     }
     if (/[\r\x03]$/.test(inputBuffer)) {
-      // Auto-detect built-in commands: if this line is a CoTerm command
-      // (list/status/read/run/...), run it here and show the result instead
-      // of sending it to the session shell — like `coterm <cmd>` typed here.
-      const cmdLine = inputBuffer.replace(/[\r\x03]+$/, '');
-      if (execViewCommandLine(sessionId, cmdLine)) {
-        inputBuffer = '';
-        return;
-      }
       flushInput();
-    } else if (isPendingViewCommand(inputBuffer)) {
-      // A built-in command is being typed (e.g. `list`, `status <id>`). Hold
-      // the idle flush so we can decide at Enter — otherwise the partial line
-      // is sent to the shell before the user presses Enter.
     } else {
       flushTimer = setTimeout(flushInput, 40);
     }
