@@ -20,7 +20,6 @@ jobs:
             script: package:windows
             asset: coterm-windows-x64.exe
             output: coterm.exe
-            shell: pwsh
             verify: |
               Get-Item coterm.exe | Select-Object Name, Length
               .\coterm.exe --version
@@ -28,7 +27,6 @@ jobs:
             script: package:linux
             asset: coterm-linux-x64
             output: coterm
-            shell: bash
             verify: |
               ls -la coterm
               ./coterm --version
@@ -36,7 +34,6 @@ jobs:
             script: package:macos
             asset: coterm-macos-x64
             output: coterm
-            shell: bash
             verify: |
               ls -la coterm
               ./coterm --version
@@ -59,13 +56,11 @@ jobs:
       - name: Package ${{ matrix.os }}
         run: bun run ${{ matrix.script }}
 
-      - name: Rename artifact
-        run: mv ${{ matrix.output }} ${{ matrix.asset }}
-        shell: ${{ matrix.shell }}
-
       - name: Verify artifact
         run: ${{ matrix.verify }}
-        shell: ${{ matrix.shell }}
+
+      - name: Rename artifact
+        run: mv ${{ matrix.output }} ${{ matrix.asset }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
