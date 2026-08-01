@@ -33,7 +33,6 @@ import {
   cmdDebug,
   cmdUsage,
   cmdAttach,
-  cmdSsh,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -188,11 +187,13 @@ export function buildCli(): Command {
     });
 
   program
-    .command('run [sessionId]')
+    .command('run [sessionId] [command...]')
     .description('Run a command in a session (defaults to the first running session) and wait for the prompt')
-    .requiredOption('--command <cmd>', 'Command to run')
-    .action(async (sessionId: string | undefined, opts: { command: string }) => {
-      await cmdWrite(sessionId, opts.command);
+    .option('--command <cmd>', 'Command to run (alternative to passing it as arguments)')
+    .action(async (sessionId: string | undefined, command: string[], opts: { command?: string }) => {
+      const cmd = opts.command ?? command.join(' ');
+      if (!cmd) return program.error('Missing command: coterm run [sessionId] <command...>');
+      await cmdWrite(sessionId, cmd);
     });
 
   program
@@ -322,13 +323,6 @@ export function buildCli(): Command {
     .description('Show whether the CoTerm environment is active and its sessions')
     .action(async () => {
       await cmdEnvStatus();
-    });
-
-  program
-    .command('ssh')
-    .description('Open a real interactive terminal into CoTerm via the system ssh client (Windows Terminal/PowerShell)')
-    .action(async () => {
-      await cmdSsh();
     });
 
   program
