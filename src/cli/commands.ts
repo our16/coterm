@@ -324,12 +324,26 @@ export async function cmdAttach(sessionId?: string): Promise<void> {
   await attachToSession(id);
 }
 
+/** Is the current terminal VT/ANSI capable (needed for interactive attach)? */
+function isVtTerminal(): boolean {
+  if (isWindows()) {
+    // Windows Terminal sets WT_SESSION; conhost (classic console) doesn't.
+    return !!process.env.WT_SESSION || !!process.env.TERM_PROGRAM;
+  }
+  return process.stdin.isTTY === true;
+}
+
 async function attachToSession(sessionId: string): Promise<void> {
   const stdin = process.stdin;
   if (!stdin.isTTY) {
     console.error('Attach requires an interactive terminal (TTY).');
     process.exitCode = 1;
     return;
+  }
+
+  if (!isVtTerminal() && process.env.COTERM_FORCE_ATTACH !== '1') {
+    console.warn('[warn] Interactive attach needs VT/ANSI support for arrow keys and history.');
+    console.warn('  On Windows, run it in Windows Terminal (or set COTERM_FORCE_ATTACH=1 to try anyway).');
   }
 
   console.log(`Attached to session ${sessionId}. Ctrl+A q to detach; Ctrl+C interrupts the session.`);
