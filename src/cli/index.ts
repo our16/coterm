@@ -32,6 +32,7 @@ import {
   cmdInstallShell,
   cmdDebug,
   cmdUsage,
+  cmdAttach,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -320,6 +321,13 @@ export function buildCli(): Command {
     .description('Show whether the CoTerm environment is active and its sessions')
     .action(async () => {
       await cmdEnvStatus();
+    });
+
+  program
+    .command('attach [sessionId]')
+    .description('Attach an interactive terminal to a session (Ctrl+A q to detach)')
+    .action(async (sessionId?: string) => {
+      await cmdAttach(sessionId);
     });
 
   program.action(() => {

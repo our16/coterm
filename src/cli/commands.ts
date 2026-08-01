@@ -319,6 +319,72 @@ function ensureShellIntegration(): void {
   }
 }
 
+export async function cmdAttach(sessionId?: string): Promise<void> {
+  const id = await resolveSession(sessionId);
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    console.error('Attach requires an interactive terminal (TTY).');
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`Attached to session ${id}. Ctrl+A q to detach; Ctrl+C interrupts the session.`);
+
+  // Baseline: don't replay what's already in the buffer.
+  let lastLen = 0;
+  try {
+    const r = await callDaemon('terminal_read', { sessionId: id, lines: 500 });
+    lastLen = r.text.length;
+  } catch {
+    // ignore
+  }
+
+  stdin.setRawMode(true);
+  stdin.resume();
+
+  let detached = false;
+  let prefixA = false;
+  const onData = (chunk: Buffer) => {
+    const s = chunk.toString('utf8');
+    for (const ch of s) {
+      if (prefixA) {
+        if (ch === 'q') {
+          detached = true;
+          return;
+        }
+        prefixA = false;
+      }
+      if (ch === '\x01') {
+        prefixA = true;
+        continue;
+      }
+      callDaemon('terminal_write', { sessionId: id, data: ch }).catch(() => {});
+    }
+  };
+  stdin.on('data', onData);
+
+  const poll = setInterval(async () => {
+    try {
+      const r = await callDaemon('terminal_read', { sessionId: id, lines: 500 });
+      const text = r.text;
+      if (text.length > lastLen) {
+        process.stdout.write(text.slice(lastLen));
+        lastLen = text.length;
+      }
+    } catch {
+      // daemon gone
+    }
+  }, 200);
+
+  while (!detached) {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+
+  clearInterval(poll);
+  stdin.setRawMode(false);
+  console.log('\nDetached.');
+}
+
 export function cmdUsage(): void {
   console.log('CoTerm — AI-native Terminal Session Runtime');
   console.log('');
