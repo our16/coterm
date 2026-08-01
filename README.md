@@ -320,6 +320,16 @@ stop              # deactivates; prompt reverts
 
 Optional per-user config lives at `~/.config/coterm/config.json` (`mcp_server_port`, `defaultShell`). Everything else is auto-generated at runtime.
 
+### Claude skill
+
+A ready-to-use Claude skill lives at [`skills/coterm/SKILL.md`](skills/coterm/SKILL.md) —
+it teaches Claude how to connect and drive CoTerm. Install by copying it into your agent's
+skills directory:
+
+```bash
+mkdir -p ~/.claude/skills && cp -r skills/coterm ~/.claude/skills/
+```
+
 ---
 
 ## Project Structure

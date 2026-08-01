@@ -316,6 +316,14 @@ stop              # 退出环境；提示符恢复
 
 可选的每用户配置在 `~/.config/coterm/config.json`（`mcp_server_port`、`defaultShell`）。其余文件全部运行时自动生成。
 
+### Claude Skill
+
+现成的 Claude skill 在 [`skills/coterm/SKILL.md`](skills/coterm/SKILL.md)——教会 Claude 如何连接并驱动 CoTerm。安装：复制到你的 agent skills 目录：
+
+```bash
+mkdir -p ~/.claude/skills && cp -r skills/coterm ~/.claude/skills/
+```
+
 ---
 
 ## 项目结构
