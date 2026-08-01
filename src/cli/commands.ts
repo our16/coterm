@@ -134,6 +134,21 @@ export async function cmdStart(options: StartOptions): Promise<void> {
   });
   logger.info({ url: httpServer.url }, 'CoTerm daemon ready (single process, shared sessions)');
 
+  // SSH terminal: reuse Windows Terminal / PowerShell's native ssh client for a
+  // real interactive terminal (arrows/history/VT handled by the client).
+  let sshHandle: { stop(): Promise<void> } | null = null;
+  try {
+    const { startSshTerminal } = await import('../ssh/ssh-server.js');
+    const cfg = loadConfig();
+    sshHandle = await startSshTerminal({
+      host,
+      port: (cfg as { ssh_port?: number }).ssh_port ?? 8378,
+      resolveShell: () => ({ shell: effectiveShell() ?? 'powershell.exe', args: [], cwd: effectiveCwd() ?? process.cwd() }),
+    });
+  } catch (err) {
+    logger.warn({ err }, 'SSH terminal server not started');
+  }
+
   // Auto-cleanup: close sessions whose creating window has exited.
   cleanupOrphanedSessions(sessionAPI).catch(() => {});
   const cleanupTimer = setInterval(() => {
@@ -144,6 +159,7 @@ export async function cmdStart(options: StartOptions): Promise<void> {
   await waitForSignal();
   clearInterval(cleanupTimer);
   await httpServer.stop();
+  await sshHandle?.stop().catch(() => {});
   await cleanup();
 }
 
@@ -317,6 +333,27 @@ function ensureShellIntegration(): void {
   } catch {
     // best-effort: integration is optional
   }
+}
+
+export async function cmdSsh(): Promise<void> {
+  const config = loadConfig();
+  const port = (config as { ssh_port?: number }).ssh_port ?? 8378;
+  const host = getMcpHost();
+  console.log(`Connecting to CoTerm SSH terminal at ${host}:${port} (Ctrl+D to exit)...`);
+  const sshArgs = [
+    '-p',
+    String(port),
+    '-o',
+    'StrictHostKeyChecking=no',
+    '-o',
+    'UserKnownHostsFile=/dev/null',
+    '-o',
+    'LogLevel=ERROR',
+    '-t',
+    `${process.env.USER ?? 'coterm'}@${host}`,
+  ];
+  const r = spawnSync('ssh', sshArgs, { stdio: 'inherit', windowsHide: true });
+  process.exitCode = r.status ?? 1;
 }
 
 export async function cmdAttach(sessionId?: string): Promise<void> {
@@ -532,11 +569,10 @@ export async function cmdActivate(options: { shell?: string; cwd?: string; name?
 
   console.log('');
   console.log('CoTerm environment activated.');
+  console.log('  - coterm list / status / run / read  act on this environment');
   console.log(`  - MCP endpoint: ${getDaemonUrl()}`);
-  console.log('Entering the session terminal (Ctrl+A q to detach, Ctrl+C interrupts)...');
-  console.log('');
-
-  await attachToSession(sessionId);
+  console.log(`  - interactive terminal: coterm ssh`);
+  console.log(`  - deactivate: coterm stop`);
 }
 
 export async function cmdEnvStatus(): Promise<void> {

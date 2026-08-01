@@ -33,6 +33,7 @@ import {
   cmdDebug,
   cmdUsage,
   cmdAttach,
+  cmdSsh,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -321,6 +322,13 @@ export function buildCli(): Command {
     .description('Show whether the CoTerm environment is active and its sessions')
     .action(async () => {
       await cmdEnvStatus();
+    });
+
+  program
+    .command('ssh')
+    .description('Open a real interactive terminal into CoTerm via the system ssh client (Windows Terminal/PowerShell)')
+    .action(async () => {
+      await cmdSsh();
     });
 
   program
