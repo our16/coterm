@@ -289,6 +289,23 @@ bun run package:windows
 
 构建流程：源码打包为 CJS（`node-pty` 保持外部以保留其 ConPTY 原生二进制），再通过 `pkg` 封装。产物已端到端验证：MCP stdio 连接、真实 ConPTY 会话创建、命令执行、读取、录制、快照与工作区。
 
+### 分发部署
+
+**只需分发 `coterm.exe`**——完全自包含（Node.js 运行时、全部代码、node-pty 的 ConPTY 原生文件均已内嵌）。在每台目标机器上：
+
+```powershell
+# 1. 把 coterm.exe 拷到任意目录
+# 2. 一次性设置："(coterm)" 前缀 + 简写命令
+.\coterm.exe install-powershell
+# 3. 激活（自动后台启动 daemon）
+.\coterm.exe          # 提示符变为 "(coterm) PS>"
+list                  # 简写命令，无需 "coterm" 前缀
+run --command "echo hi"
+stop                  # 退出，提示符恢复
+```
+
+可选的每用户配置在 `~/.config/coterm.json`（MCP 端口/主机、默认 shell）。其余文件全部运行时自动生成。
+
 ---
 
 ## 项目结构

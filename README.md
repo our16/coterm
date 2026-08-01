@@ -289,6 +289,23 @@ bun run package:windows
 
 The build bundles the source to CJS (with `node-pty` kept external for its native ConPTY binaries) and wraps it with `pkg`. The resulting executable is verified end-to-end: MCP stdio connect, real ConPTY session creation, command execution, reading, recording, snapshots, and workspaces.
 
+### Distribution
+
+**Ship only `coterm.exe`** — it is fully self-contained (Node.js runtime, all code, and node-pty ConPTY binaries are embedded). On each target machine:
+
+```powershell
+# 1. Copy coterm.exe anywhere
+# 2. One-time setup for the "(coterm)" prompt prefix + shorthand commands
+.\coterm.exe install-powershell
+# 3. Activate (auto-starts the daemon in the background)
+.\coterm.exe          # prompt becomes "(coterm) PS>"
+list                  # shorthand, no "coterm" prefix needed
+run --command "echo hi"
+stop                  # exit, prompt reverts
+```
+
+Optional per-user config lives at `~/.config/coterm.json` (MCP port/host, default shell). Everything else is auto-generated at runtime.
+
 ---
 
 ## Project Structure
