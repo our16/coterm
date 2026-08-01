@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { VERSION } from '../version.js';
+import { resolveSession } from './daemon-client.js';
 import {
   cmdStart,
   cmdMcp,
@@ -188,12 +189,17 @@ export function buildCli(): Command {
 
   program
     .command('run [sessionId] [command...]')
-    .description('Run a command in a session (defaults to the first running session) and wait for the prompt')
+    .description('Run a command in a session (defaults to this window\'s session, then the first running session) and wait for the prompt')
     .option('--command <cmd>', 'Command to run (alternative to passing it as arguments)')
     .action(async (sessionId: string | undefined, command: string[], opts: { command?: string }) => {
       const cmd = opts.command ?? command.join(' ');
-      if (!cmd) return program.error('Missing command: coterm run [sessionId] <command...>');
-      await cmdWrite(sessionId, cmd);
+      const id = await resolveSession(sessionId);
+      if (!cmd) {
+        console.log(`Opening the shared terminal for session ${id} — commands from you AND the AI (MCP) appear here live. Ctrl+A q to leave.`);
+        await cmdAttach(id);
+        return;
+      }
+      await cmdWrite(id, cmd);
     });
 
   program

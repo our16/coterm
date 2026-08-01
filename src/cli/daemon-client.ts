@@ -65,6 +65,71 @@ export async function daemonAlive(): Promise<boolean> {
   }
 }
 
+export interface StreamChunk {
+  text: string;
+  offset: number;
+}
+
+/**
+ * Subscribe to a session's live output over SSE. Calls `onChunk` for every
+ * piece of raw PTY output (including the seed from the given byte offset).
+ * Returns an unsubscribe function. `onEnd` is called on error/close.
+ */
+export function streamSessionOutput(
+  sessionId: string,
+  from: number,
+  onChunk: (chunk: StreamChunk) => void,
+  onEnd: (err?: Error) => void,
+): () => void {
+  const config = loadConfig();
+  const host = getMcpHost();
+  const port = getMcpPort(config);
+  let closed = false;
+  let buffer = '';
+
+  const req = http.request(
+    {
+      host,
+      port,
+      path: `/stream?sessionId=${encodeURIComponent(sessionId)}&from=${from}`,
+      method: 'GET',
+      headers: { Accept: 'text/event-stream' },
+    },
+    (res) => {
+      if (res.statusCode !== 200) {
+        onEnd(new Error(`Stream failed (HTTP ${res.statusCode})`));
+        return;
+      }
+      res.on('data', (chunk) => {
+        buffer += chunk.toString('utf8');
+        let idx: number;
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const rawEvent = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const lines = rawEvent.split('\n');
+          const dataLine = lines.find((l) => l.startsWith('data: '));
+          if (!dataLine) continue;
+          try {
+            onChunk(JSON.parse(dataLine.slice(6)) as StreamChunk);
+          } catch {
+            // skip malformed events
+          }
+        }
+      });
+      res.on('end', () => !closed && onEnd());
+      res.on('error', (err) => !closed && onEnd(err));
+    },
+  );
+  req.on('error', (err) => !closed && onEnd(err));
+  req.end();
+
+  return () => {
+    closed = true;
+    req.destroy();
+  };
+}
+
+
 /** Returns the running daemon's version, or null if it's stale/unreachable. */
 export async function getDaemonVersion(): Promise<string | null> {
   try {

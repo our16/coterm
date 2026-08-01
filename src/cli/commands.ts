@@ -8,7 +8,7 @@ import { startHttpMcpServer } from '../mcp/http-server.js';
 import { logger } from '../utils/logger.js';
 import { getTempDir, isWindows } from '../utils/platform.js';
 import { loadConfig, ensureConfig, getMcpHost, getMcpPort, getConfigPath, saveConfig, setConfigValue, writeActiveState, removeActiveState, getPowershellIntegrationPath, readActiveState } from '../config.js';
-import { callDaemon, daemonAlive, waitForDaemon, listSessionsFromDaemon, getDaemonUrl, resolveSession, getDaemonVersion, stopDaemonViaCli } from './daemon-client.js';
+import { callDaemon, daemonAlive, waitForDaemon, listSessionsFromDaemon, getDaemonUrl, resolveSession, getDaemonVersion, stopDaemonViaCli, streamSessionOutput } from './daemon-client.js';
 import { cleanupOrphanedSessions } from '../cleanup.js';
 import { VERSION } from '../version.js';
 
@@ -324,6 +324,13 @@ export async function cmdAttach(sessionId?: string): Promise<void> {
   await attachToSession(id);
 }
 
+/** Push this window's terminal size to the session so the PTY matches. */
+function syncTerminalSize(sessionId: string): void {
+  const cols = process.stdout.columns ?? 80;
+  const rows = process.stdout.rows ?? 24;
+  callDaemon('terminal_resize', { sessionId, cols, rows }).catch(() => {});
+}
+
 /** Is the current terminal VT/ANSI capable (needed for interactive attach)? */
 function isVtTerminal(): boolean {
   if (isWindows()) {
@@ -364,6 +371,7 @@ async function attachToSession(sessionId: string): Promise<void> {
   // shell isn't left in raw mode (arrows would show as literal ^[A).
   const restore = () => {
     try {
+      flushInput();
       stdin.removeListener('data', onData);
       stdin.setRawMode(false);
       stdin.pause();
@@ -380,12 +388,31 @@ async function attachToSession(sessionId: string): Promise<void> {
 
   let done = false;
   let prefixA = false;
+
+  // Batch keystrokes and send them as a single write. Per-character HTTP
+  // writes would race with AI commands and split multi-byte sequences (e.g.
+  // the arrow key escape `\x1b[A`), garbling input/ordering. We flush on
+  // Enter, Ctrl+C, or a short idle gap so typing feels live but stays atomic.
+  let inputBuffer = '';
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  const flushInput = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    if (!inputBuffer) return;
+    const chunk = inputBuffer;
+    inputBuffer = '';
+    callDaemon('terminal_write', { sessionId, data: chunk, requester: 'human' }).catch(() => {});
+  };
+
   const onData = (chunk: Buffer) => {
     const s = chunk.toString('utf8');
     for (const ch of s) {
       if (prefixA) {
         if (ch === 'q') {
           done = true;
+          flushInput();
           return;
         }
         prefixA = false;
@@ -394,41 +421,68 @@ async function attachToSession(sessionId: string): Promise<void> {
         prefixA = true;
         continue;
       }
-      callDaemon('terminal_write', { sessionId, data: ch }).catch(() => {});
+      inputBuffer += ch;
+    }
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    if (/[\r\x03]$/.test(inputBuffer)) {
+      flushInput();
+    } else {
+      flushTimer = setTimeout(flushInput, 40);
     }
   };
   stdin.on('data', onData);
 
+  // Keep the PTY sized to this window; re-sync when the terminal resizes.
+  syncTerminalSize(sessionId);
+  const onResize = () => syncTerminalSize(sessionId);
+  process.stdout.on('resize', onResize);
+
   let sessionEnded = false;
-  const poll = setInterval(async () => {
+
+  // Live output: SSE push from the daemon instead of polling. The daemon
+  // subscribes to the session's output events and pushes each chunk as it
+  // arrives, so what AI writes and what the shell echoes shows up immediately.
+  const unsubStream = streamSessionOutput(
+    sessionId,
+    offset,
+    (chunk) => {
+      if (chunk.text) {
+        process.stdout.write(chunk.text);
+        offset = chunk.offset;
+      }
+    },
+    (err) => {
+      if (err) {
+        console.error(`\n[stream error] ${err.message}`);
+      }
+      done = true;
+    },
+  );
+
+  // Watchdog: detect the session shell exiting (e.g. the user typed `exit`).
+  const watchdog = setInterval(async () => {
     try {
-      // Detect the session shell exiting (e.g. the user typed `exit`).
       const status = await callDaemon('terminal_status', { sessionId });
       const st = JSON.parse(status.text) as { info?: { state?: string } };
       if (st.info && st.info.state === 'closed') {
         sessionEnded = true;
         done = true;
-        return;
-      }
-      // Stream raw PTY output (with cursor control) so the terminal renders
-      // interactive typing correctly.
-      const r = await callDaemon('terminal_raw', { sessionId, from: offset });
-      const raw = JSON.parse(r.text) as { text: string; offset: number };
-      if (raw.text) {
-        process.stdout.write(raw.text);
-        offset = raw.offset;
       }
     } catch {
-      // daemon gone — treat as ended
       done = true;
     }
-  }, 50);
+  }, 2000);
 
   while (!done) {
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
 
-  clearInterval(poll);
+  unsubStream();
+  clearInterval(watchdog);
+  process.stdout.removeListener('resize', onResize);
   restore();
   process.removeListener('SIGINT', onSig);
   process.removeListener('SIGTERM', onSig);

@@ -72,9 +72,9 @@ export async function executeTool(api: SessionAPI, name: string, args: Record<st
       }
     }
     case 'terminal_write': {
-      const { sessionId, data } = args as { sessionId: string; data: string };
+      const { sessionId, data, requester } = args as { sessionId: string; data: string; requester?: string };
       try {
-        await api.write(sessionId, data, 'ai');
+        await api.write(sessionId, data, (requester as 'human' | 'ai') ?? 'human');
         return ok(`Wrote ${data.length} chars to session ${sessionId}`);
       } catch (e) {
         return err((e as Error).message);

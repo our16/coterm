@@ -7,6 +7,7 @@ import { executeTool } from './executor.js';
 import { sessionAPI, type SessionAPI } from '../api/session-api.js';
 import { cleanupOrphanedSessions } from '../cleanup.js';
 import { logger } from '../utils/logger.js';
+import { eventBus } from '../core/event-bus.js';
 import { DEFAULT_MCP_HOST, DEFAULT_MCP_PORT } from '../config.js';
 
 export interface HttpMcpServerOptions {
@@ -93,6 +94,63 @@ export async function startHttpMcpServer(
           }
           return;
         }
+
+        // Live output stream (SSE) for terminal attach/`coterm run` views.
+        if (url.pathname === '/stream' && req.method === 'GET') {
+          const sessionId = url.searchParams.get('sessionId');
+          const from = Number(url.searchParams.get('from') ?? '0') || 0;
+          if (!sessionId) {
+            res.writeHead(400, { 'Content-Type': 'text/plain' });
+            res.end('missing sessionId');
+            return;
+          }
+          try {
+            const session = api.getSessionManager().getSession(sessionId);
+            if (!session) throw new Error(`Session ${sessionId} not found`);
+
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Accel-Buffering': 'no',
+            });
+            res.write(': connected\n\n');
+            res.flushHeaders?.();
+
+            // Seed from the given byte offset so we don't replay history.
+            const seed = session.getRawOutput(from);
+            if (seed.text) {
+              res.write(`data: ${JSON.stringify({ text: seed.text, offset: seed.offset })}\n\n`);
+            }
+
+            const unsubscribe = eventBus.on('session:output', (event) => {
+              if (event.type === 'session:output' && event.sessionId === sessionId) {
+                const s = session.getRawOutput(0);
+                res.write(`data: ${JSON.stringify({ text: event.data, offset: s.offset })}\n\n`);
+              }
+            });
+
+            const heartbeat = setInterval(() => {
+              try {
+                res.write(': ping\n\n');
+              } catch {
+                clearInterval(heartbeat);
+                unsubscribe();
+              }
+            }, 15000);
+            heartbeat.unref?.();
+
+            req.on('close', () => {
+              clearInterval(heartbeat);
+              unsubscribe();
+            });
+          } catch (err) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end((err as Error).message);
+          }
+          return;
+        }
+
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not found');
         return;
