@@ -1,0 +1,70 @@
+# Changelog
+
+All notable changes to CoTerm are documented here. This project follows [Semantic Versioning](https://semver.org/).
+
+## [0.2.0] - 2026-08-01
+
+### Single-process daemon (shared sessions)
+
+- `coterm start` now runs a **single-process MCP daemon** over HTTP (Streamable HTTP transport).
+  Multiple agents and terminal renderers connect to the same process and share one session
+  registry — Agent A's session is visible, attachable, and readable by Agent B.
+- Default MCP endpoint: `http://127.0.0.1:8377/mcp` (was `8080`).
+- `coterm mcp` retains the single-agent stdio mode for ad-hoc use.
+
+### User configuration (`~/.config/coterm.json`)
+
+- New config file with `mcp.host`, `mcp.port`, `defaultShell`, `defaultCwd`.
+- New commands: `coterm config` (show) and `coterm config-set <key> <value>` (edit).
+- CLI flags override config values.
+
+### Release & security
+
+- Release workflow now publishes release notes from this `CHANGELOG.md`.
+- Pre-commit secret scanner, hardened `.gitignore`, and gitleaks CI in place.
+
+## [0.1.0] - 2026-08-01
+
+Initial release — the AI-native terminal session runtime.
+
+### Session runtime (L1)
+
+- PTY-backed sessions on Windows (ConPTY) and POSIX (forkpty), managed through `node-pty`.
+- Full session lifecycle: `created → starting → running → active → paused → closed`.
+- Ownership model (Human owns, AI collaborates) with attach/detach.
+- Screen buffer (ANSI-aware) and multi-shell prompt detection (PowerShell, CMD, bash, zsh, fish...).
+
+### Connectors (L1)
+
+- `local` (PowerShell / CMD / bash), `ssh` (interactive, keeps bastion/OTP sessions alive),
+  `wsl`, `docker exec`.
+
+### Human + AI collaboration (L2)
+
+- Priority-based **input arbitration**: human input always wins; AI input is queued;
+  Ctrl+C interrupts AI commands.
+- Presence states: `idle / human-typing / ai-thinking / ai-running`.
+
+### Session intelligence (L3)
+
+- Error-aware current-directory tracking (no `pwd` probe).
+- Toolchain detection via PATH scan (node / python / git / docker...).
+- Full-screen app detection (vim/top/less) via ANSI alternate-screen sequences.
+- Command graph: command, requester, duration, error heuristic, output preview.
+
+### AI runtime (L4)
+
+- Multi-agent attach with distinct identities sharing one session.
+- Session recording (JSONL) and replay.
+- Session snapshot / restore with continuity.
+
+### Workspace (L5)
+
+- Named session groups with parallel `run` across members.
+
+### Integration
+
+- MCP server: 23 terminal + workspace tools (stdio, then HTTP daemon in 0.2.0).
+- Session API (in-process TypeScript) for terminal renderers.
+- Full CLI for lifecycle, inspection, recording, snapshots, and workspaces.
+- Windows standalone `coterm.exe` via `bun build` + `pkg`.

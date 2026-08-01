@@ -36,8 +36,25 @@ jobs:
           Get-Item coterm.exe | Select-Object Name, Length
           .\coterm.exe --version
 
+      - name: Extract changelog section for this version
+        id: changelog
+        shell: bash
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VER" '
+            BEGIN { p = 0 }
+            /^## / {
+              if (p) exit
+              if ($0 ~ "\\[" ver "\\]") p = 1
+            }
+            p { print }
+          ' CHANGELOG.md > release_body.md
+          echo "--- extracted body ---"
+          head -c 400 release_body.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: coterm.exe
+          body_path: release_body.md
           generate_release_notes: true
