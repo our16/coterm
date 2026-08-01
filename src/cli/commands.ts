@@ -582,19 +582,7 @@ export async function cmdWrite(sessionId: string | undefined, command: string): 
       process.exitCode = 1;
       return;
     }
-    // Show the command output so it's visible without a separate `read`.
-    // Retry briefly: the PTY output may still be flushing after the prompt.
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const read = await callDaemon('terminal_read', { sessionId: id, lines: 100 });
-      const out = read.isError ? '' : read.text.trim();
-      if (out && out.includes(command.trim())) {
-        console.log(out);
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    const read = await callDaemon('terminal_read', { sessionId: id, lines: 100 });
-    if (!read.isError && read.text.trim()) console.log(read.text.trim());
+    console.log(text);
   } catch (err) {
     daemonError(err);
   }

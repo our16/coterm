@@ -96,11 +96,14 @@ export async function executeTool(api: SessionAPI, name: string, args: Record<st
           // (otherwise the first prompt of a fresh session is misread).
           if (output.includes(needle)) break;
         }
-        // Skip the session banner/profile noise: return from the command echo onward.
+        // Natural transcript: include the prompt line before the command echo.
         const lines = output.split('\n');
-        const echoIdx = lines.findIndex((l) => l.includes(needle));
+        let echoIdx = lines.findIndex((l) => l.includes(needle));
+        if (echoIdx > 0 && /[>#\$]\s*$/.test(lines[echoIdx - 1].trim())) {
+          echoIdx -= 1;
+        }
         const clean = echoIdx >= 0 ? lines.slice(echoIdx).join('\n') : output;
-        return ok(`Command finished.\n\n${clean || '(no output)'}`);
+        return ok(clean || '(no output)');
       } catch (e) {
         return err(`Command did not complete: ${(e as Error).message}`);
       }
