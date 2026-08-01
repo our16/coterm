@@ -1,5 +1,5 @@
 ﻿import * as http from 'node:http';
-import { getMcpHost, getMcpPort, loadConfig } from '../config.js';
+import { getMcpHost, getMcpPort, loadConfig, readActiveState } from '../config.js';
 
 export interface DaemonResult {
   text: string;
@@ -89,6 +89,15 @@ export async function listSessionsFromDaemon(): Promise<SessionInfoFromDaemon[]>
 export async function resolveSession(sessionId?: string): Promise<string> {
   if (sessionId) return sessionId;
   const sessions = await listSessionsFromDaemon();
+
+  // Prefer this window's own session (recorded by activate with the parent PID).
+  const windowPid = process.ppid ?? process.pid;
+  const state = readActiveState();
+  if (state && state.pid === windowPid && state.sessionId) {
+    const own = sessions.find((s) => s.id === state.sessionId && s.state === 'running');
+    if (own) return own.id;
+  }
+
   const running = sessions.find((s) => s.state === 'running');
   if (!running) {
     throw new Error('No running session in the CoTerm environment. Create one with: coterm create');

@@ -7,7 +7,7 @@ import { startMcpServer, CoTermMcpServer } from '../mcp/server.js';
 import { startHttpMcpServer } from '../mcp/http-server.js';
 import { logger } from '../utils/logger.js';
 import { getTempDir, isWindows } from '../utils/platform.js';
-import { loadConfig, ensureConfig, getMcpHost, getMcpPort, getConfigPath, saveConfig, setConfigValue, writeActiveMarker, removeActiveMarker, getPowershellIntegrationPath } from '../config.js';
+import { loadConfig, ensureConfig, getMcpHost, getMcpPort, getConfigPath, saveConfig, setConfigValue, writeActiveState, writeActiveMarker, removeActiveMarker, getPowershellIntegrationPath, readActiveState } from '../config.js';
 import { callDaemon, daemonAlive, waitForDaemon, listSessionsFromDaemon, getDaemonUrl, resolveSession } from './daemon-client.js';
 
 const PID_FILE = path.join(getTempDir(), 'coterm.pid');
@@ -324,16 +324,26 @@ export async function cmdActivate(options: { shell?: string; cwd?: string; name?
     console.log(`CoTerm daemon started: ${getDaemonUrl()}`);
   }
 
-  writeActiveMarker();
+  const windowPid = process.ppid ?? process.pid;
   if (isWindows()) {
     ensurePowerShellIntegration();
   } else {
     ensureShellIntegration();
   }
 
-  const sessions = await listSessionsFromDaemon();
-  if (sessions.length === 0) {
-    console.log('Creating a default session...');
+  // Each window gets its own session: reuse this window's session if it still
+  // exists, otherwise create a new one and remember it in the active state.
+  const state = readActiveState();
+  let sessionId: string | undefined;
+  if (state && state.pid === windowPid && state.sessionId) {
+    const sessions = await listSessionsFromDaemon();
+    if (sessions.some((s) => s.id === state.sessionId && s.state === 'running')) {
+      sessionId = state.sessionId;
+    }
+  }
+
+  if (!sessionId) {
+    console.log('Creating a session for this window...');
     const { text, isError } = await callDaemon('terminal_create', {
       name: options.name ?? 'default',
       shell: effectiveShell(options.shell),
@@ -344,11 +354,11 @@ export async function cmdActivate(options: { shell?: string; cwd?: string; name?
       process.exitCode = 1;
       return;
     }
-    const { sessionId } = JSON.parse(text);
-    console.log(`Default session ready: ${sessionId}`);
-  } else {
-    console.log(`Sessions in environment: ${sessions.length}`);
+    sessionId = (JSON.parse(text) as { sessionId: string }).sessionId;
+    console.log(`Session ready: ${sessionId}`);
   }
+
+  writeActiveState({ pid: windowPid, sessionId });
 
   console.log('');
   console.log('CoTerm environment activated.');
@@ -669,8 +679,8 @@ if (-not $script:CoTermPromptWrapped) {
     $prefix = ''
     if (Test-Path $CoTermMarker) {
       try {
-        $mid = [int](Get-Content $CoTermMarker -Raw)
-        if ($mid -eq $PID) { $prefix = '(coterm) ' }
+        $state = Get-Content $CoTermMarker -Raw | ConvertFrom-Json
+        if ([int]$state.pid -eq $PID) { $prefix = '(coterm) ' }
       } catch { }
     }
     $base = if ($script:CoTermOriginalPrompt) {

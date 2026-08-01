@@ -44,14 +44,33 @@ export function ensureConfig(): CotermConfig {
   return loadConfig();
 }
 
-export function writeActiveMarker(): void {
+export interface ActiveState {
+  pid: number;
+  sessionId?: string;
+}
+
+export function writeActiveState(state: ActiveState): void {
   try {
     fs.mkdirSync(path.dirname(getActiveMarkerPath()), { recursive: true });
-    // Record the parent shell's PID so the prompt only shows "(coterm) " in the
-    // window that ran activate (per-window, not global).
-    fs.writeFileSync(getActiveMarkerPath(), String(process.ppid ?? process.pid));
+    // Record the parent shell's PID (and its session) so the prompt and CLI
+    // only act on the window that ran activate (per-window, not global).
+    fs.writeFileSync(getActiveMarkerPath(), JSON.stringify(state));
   } catch {
     // ignore
+  }
+}
+
+export function writeActiveMarker(): void {
+  writeActiveState({ pid: process.ppid ?? process.pid });
+}
+
+export function readActiveState(): ActiveState | null {
+  try {
+    if (!fs.existsSync(getActiveMarkerPath())) return null;
+    const parsed = JSON.parse(fs.readFileSync(getActiveMarkerPath(), 'utf8')) as ActiveState;
+    return parsed ?? null;
+  } catch {
+    return null;
   }
 }
 
