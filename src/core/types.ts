@@ -36,6 +36,7 @@ export type SessionEvent =
   | { type: 'session:interrupted'; sessionId: string; by: Requester }
   | { type: 'session:presence'; sessionId: string; presence: PresenceState }
   | { type: 'session:recorded'; sessionId: string; recording: boolean }
+  | { type: 'session:renamed'; sessionId: string; name: string }
   | { type: 'inputArbiter:locked'; sessionId: string; by: Requester }
   | { type: 'inputArbiter:unlocked'; sessionId: string };
 

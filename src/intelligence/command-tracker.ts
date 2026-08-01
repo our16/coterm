@@ -17,6 +17,10 @@ const ERROR_PATTERNS = [
   /no such file/i,
   /permission denied/i,
   /denied:/i,
+  /timed out/i,
+  /connection refused/i,
+  /could not resolve host/i,
+  /connection closed/i,
 ];
 
 export function hasErrorIndicator(output: string): boolean {

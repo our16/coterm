@@ -10,7 +10,7 @@ import { createSnapshot } from '../ai/snapshot.js';
 
 export class Session {
   public readonly id: string;
-  public readonly name: string;
+  public name: string;
   public readonly config: SessionConfig;
   public state: SessionState = 'created';
   public owner: Requester = 'human';
@@ -49,6 +49,9 @@ export class Session {
     this.commandQueue = new CommandQueue();
     this.inputScheduler = new InputScheduler();
     this.intelligence = new SessionIntelligence(this.config.cwd);
+    // Rename the session tab when the user ssh's / wsl's / docker exec's,
+    // so the session list shows where the shell actually is.
+    this.intelligence.onRename((label) => this.setName(label));
     this.recorder = new SessionRecorder();
 
     this.pty.onOutput((data) => {
@@ -274,5 +277,12 @@ export class Session {
       owner: this.owner,
       presence: this.presence,
     };
+  }
+
+  /** Rename the session (used when the shell switches target, e.g. `ssh`). */
+  setName(name: string): void {
+    this.name = name;
+    this.record({ type: 'session:renamed', sessionId: this.id, name });
+    eventBus.emit({ type: 'session:renamed', sessionId: this.id, name });
   }
 }

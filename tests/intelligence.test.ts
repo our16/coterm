@@ -187,6 +187,60 @@ describe('SessionIntelligence', () => {
     }
   });
 
+  test('renames on successful ssh/wsl/docker commands', () => {
+    const cases: Array<[string, string]> = [
+      ['ssh user@host', 'ssh:user@host'],
+      ['ssh -p 22 admin@jump.company.com', 'ssh:admin@jump.company.com'],
+      ['ssh -i key.pem ubuntu@server', 'ssh:ubuntu@server'],
+      ['ssh mybox', 'ssh:mybox'],
+      ['wsl', 'wsl'],
+      ['wsl -d Ubuntu-22.04', 'wsl:Ubuntu-22.04'],
+      ['docker exec -it mycontainer bash', 'docker'],
+      ['docker run -it ubuntu', 'docker'],
+    ];
+    for (const [cmd, expected] of cases) {
+      const si = new SessionIntelligence(base);
+      let renamed: string | null = null;
+      si.onRename((label) => (renamed = label));
+      si.recordCommand(cmd, 'human');
+      si.onOutput('user@host:~$');
+      si.onPromptDetected();
+      expect(renamed, `expected '${cmd}' to rename to '${expected}'`).toBe(expected);
+    }
+  });
+
+  test('does not rename for non-env commands or failed ones', () => {
+    const si = new SessionIntelligence(base);
+    let renamed: string | null = null;
+    si.onRename((label) => (renamed = label));
+    si.recordCommand('git status', 'human');
+    si.onOutput('$');
+    si.onPromptDetected();
+    expect(renamed).toBeNull();
+
+    const si2 = new SessionIntelligence(base);
+    let renamed2: string | null = null;
+    si2.onRename((label) => (renamed2 = label));
+    si2.recordCommand('ssh nowhere', 'human');
+    si2.onOutput('ssh: connect to host nowhere port 22: Connection timed out\r\n$');
+    si2.onPromptDetected();
+    expect(renamed2).toBeNull();
+  });
+
+  test('a later command cancels a stale pending rename', () => {
+    const si = new SessionIntelligence(base);
+    let renamed: string | null = null;
+    si.onRename((label) => (renamed = label));
+    // ssh hangs (e.g. waiting for a password) — no remote prompt yet.
+    si.recordCommand('ssh -o ConnectTimeout=3 host', 'human');
+    si.onOutput("host's password:");
+    // The user instead runs a normal command, which returns to the local prompt.
+    si.recordCommand('git status', 'human');
+    si.onOutput('$');
+    si.onPromptDetected();
+    expect(renamed).toBeNull();
+  });
+
   test('getState aggregates all signals', () => {
     const si = new SessionIntelligence('C:\\proj');
     si.onOutput('\x1b[?1049h'); // enter vim

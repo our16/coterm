@@ -28,6 +28,11 @@ export class PromptDetector {
     this.patterns = new Map();
     this.patterns.set(this.shellKey, DEFAULT_PATTERNS[this.shellKey] || /\$\s*$/);
 
+    // wsl.exe / docker / ssh launch a POSIX shell inside — treat as bash.
+    if (['wsl', 'wsl.exe', 'docker', 'docker.exe', 'ssh'].includes(this.shellKey)) {
+      this.patterns.set(this.shellKey, DEFAULT_PATTERNS.bash);
+    }
+
     if (customPatterns) {
       for (const p of customPatterns) {
         this.patterns.set(normalizeShell(p.shell), p.pattern);
@@ -36,7 +41,7 @@ export class PromptDetector {
   }
 
   detect(output: string): string | null {
-    const pattern = this.patterns.get(this.shellKey) ?? this.patterns.get('default') ?? this.patterns.values().next().value;
+    const pattern = this.patterns.get(this.shellKey) ?? this.patterns.get('default') ?? /\$\s*$/;
     if (!pattern) return null;
 
     const clean = this.stripAnsi(output);
