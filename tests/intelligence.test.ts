@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import * as path from 'node:path';
 import { EnvDetector } from '../src/intelligence/env-detector.js';
 import { ScreenModeDetector } from '../src/intelligence/screen-mode-detector.js';
 import { CommandTracker, hasErrorIndicator } from '../src/intelligence/command-tracker.js';
 import { SessionIntelligence } from '../src/intelligence/session-intelligence.js';
 import { Session } from '../src/core/session.js';
+import { isWindows } from '../src/utils/platform.js';
 import { MockPty } from './helpers/mock-pty.js';
 
 describe('EnvDetector', () => {
@@ -141,34 +143,48 @@ describe('hasErrorIndicator', () => {
 });
 
 describe('SessionIntelligence', () => {
+  const base = isWindows() ? 'C:\\proj' : '/proj';
+  const src = path.resolve(base, 'src');
+
   test('tracks cd commands after successful completion', () => {
-    const si = new SessionIntelligence('C:\\proj');
+    const si = new SessionIntelligence(base);
     si.recordCommand('cd src', 'human');
-    si.onOutput('PS C:\\proj\\src>');
+    si.onOutput('>');
     si.onPromptDetected();
-    expect(si.getCwd().toLowerCase()).toBe('c:\\proj\\src'.toLowerCase());
+    expect(si.getCwd()).toBe(src);
 
     si.recordCommand('Set-Location ..', 'ai');
-    si.onOutput('PS C:\\proj>');
+    si.onOutput('>');
     si.onPromptDetected();
-    expect(si.getCwd().toLowerCase()).toBe('c:\\proj'.toLowerCase());
+    expect(si.getCwd()).toBe(path.resolve(src, '..'));
   });
 
   test('does not apply cwd on failed cd', () => {
-    const si = new SessionIntelligence('C:\\proj');
+    const si = new SessionIntelligence(base);
     si.recordCommand('cd missing-dir', 'human');
-    si.onOutput('系统找不到指定的路径。\r\nPS C:\\proj>');
+    si.onOutput('cannot find the path specified.\r\n>');
     si.onPromptDetected();
-    expect(si.getCwd().toLowerCase()).toBe('c:\\proj'.toLowerCase());
+    expect(si.getCwd()).toBe(base);
   });
 
   test('tracks tilde to home', () => {
-    const si = new SessionIntelligence('C:\\proj');
-    process.env.USERPROFILE = 'C:\\Users\\Test';
-    si.recordCommand('cd ~/dev', 'human');
-    si.onOutput('PS C:\\Users\\Test\\dev>');
-    si.onPromptDetected();
-    expect(si.getCwd().toLowerCase()).toBe('c:\\users\\test\\dev'.toLowerCase());
+    const home = isWindows() ? 'C:\\Users\\Test' : '/home/test';
+    const originalUser = process.env.USERPROFILE;
+    const originalHome = process.env.HOME;
+    process.env.USERPROFILE = home;
+    process.env.HOME = home;
+    try {
+      const si = new SessionIntelligence(base);
+      si.recordCommand('cd ~/dev', 'human');
+      si.onOutput('>');
+      si.onPromptDetected();
+      expect(si.getCwd()).toBe(path.resolve(home, 'dev'));
+    } finally {
+      if (originalUser === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = originalUser;
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+    }
   });
 
   test('getState aggregates all signals', () => {
