@@ -457,11 +457,15 @@ function execViewCommandLine(sessionId: string, cmdLine: string): boolean {
   const handler = VIEW_COMMANDS[first];
   if (!handler) return false;
   const arg = trimmed.slice(first.length).trim();
-  void handler(sessionId, arg).then((result) => {
-    process.stdout.write(`\x1b[36m${first}\x1b[0m${trimmed.slice(first.length)}\r\n\x1b[2m${result}\x1b[0m\r\n`);
-  }).catch((err) => {
-    process.stdout.write(`\x1b[36m${first}\x1b[0m ${(err as Error).message}\r\n`);
-  });
+  // Let the shell render its Ctrl+C cancellation + fresh prompt before we
+  // print the result, so the two writers don't interleave on the terminal.
+  setTimeout(() => {
+    void handler(sessionId, arg).then((result) => {
+      process.stdout.write(`\x1b[36m${first}\x1b[0m${trimmed.slice(first.length)}\r\n\x1b[2m${result}\x1b[0m\r\n`);
+    }).catch((err) => {
+      process.stdout.write(`\x1b[36m${first}\x1b[0m ${(err as Error).message}\r\n`);
+    });
+  }, 60);
   return true;
 }
 
@@ -525,8 +529,10 @@ async function attachToSession(sessionId: string): Promise<void> {
 
   // Keystrokes are streamed to the shell as-is (so typing feels live and the
   // shell echoes them). We additionally track the current line; on Enter, if
-  // the line is a built-in CoTerm command (list/status/read/run/...), we wipe
-  // the echoed characters off the shell's input and run it locally instead.
+  // the line is a built-in CoTerm command (list/status/read/run/...), we send
+  // Ctrl+C to cancel the echoed line (the shell renders `^C` + a fresh prompt)
+  // and run it locally, printing the result after the shell settles — no
+  // backspace trickery that can race with the live output stream.
   let inputBuffer = '';
   let lineBuf = '';
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -539,12 +545,6 @@ async function attachToSession(sessionId: string): Promise<void> {
     const chunk = inputBuffer;
     inputBuffer = '';
     callDaemon('terminal_write', { sessionId, data: chunk, requester: 'human' }).catch(() => {});
-  };
-
-  const sendBackspaces = (count: number) => {
-    if (count <= 0) return;
-    // Erase the echoed command from the shell's input line (before Enter).
-    callDaemon('terminal_write', { sessionId, data: '\x08'.repeat(count), requester: 'human' }).catch(() => {});
   };
 
   const onData = (chunk: Buffer) => {
@@ -566,15 +566,12 @@ async function attachToSession(sessionId: string): Promise<void> {
 
       // Track the current line for Enter-time command detection.
       if (ch === '\r' || ch === '\n') {
-        // Enter: check for a built-in command BEFORE sending the Enter.
         const cmd = lineBuf.trim();
-        if (execViewCommandLine(sessionId, cmd)) {
-          // Wipe anything the shell may have echoed (if it was already
-          // flushed) and drop any still-buffered input — the view command
-          // handled the line; don't let `list\r` reach the shell.
-          sendBackspaces(lineBuf.length);
+        if (cmd && execViewCommandLine(sessionId, cmd)) {
+          // Cancel the echoed line in the shell so it doesn't execute.
           inputBuffer = '';
           lineBuf = '';
+          callDaemon('terminal_write', { sessionId, data: '\x03', requester: 'human' }).catch(() => {});
           return;
         }
         lineBuf = '';
