@@ -81,7 +81,12 @@ curl -s -X POST http://127.0.0.1:$PORT/cli \
 Do **not** poll or sleep. Follow this pattern:
 
 1. `terminal_list` — find an existing session (reuse it if suitable).
-2. `terminal_create` — if you need a new session (connector: local | ssh | wsl | docker).
+2. **Ask the human first when creating a view.** Before `terminal_create` for a
+   new view (a WSL/SSH/docker container, a different cwd), ask whether to reuse
+   an existing view/session or open a new one. If the human wants a **new view**:
+   - `terminal_create` the session, then run `coterm open <sessionId>` (opens a
+     new terminal window/tab attached to it, so the human sees it live).
+   - Never silently create a view the human can't see.
 3. `terminal_attach` — register as a participant on a shared session (optional but polite).
 4. `terminal_run` — write a command **and wait for the next shell prompt** (blocking; set `timeout`).
 5. `terminal_read` — read output.
@@ -154,7 +159,9 @@ All follow the same `POST /cli` shape with `{"tool":"<name>","args":{...}}`.
 ## Best practices
 
 - **Reuse sessions, don't recreate.** If a session exists (e.g. an SSH/bastion
-  session already logged in), attach to it — avoid passwords/MFA/re-init.
+  session already logged in), attach to it — avoid passwords/MFA/re-init. When a
+  new view is genuinely needed, ask the human first, then `coterm open` it so it
+  pops up for them.
 - **Wait, don't sleep.** `terminal_run`/`terminal_wait_prompt` block until the
   shell returns to a prompt. Never `sleep` between a command and reading output.
 - **Set `timeout`** on `terminal_run` (e.g. 60s for builds). On timeout, read

@@ -34,6 +34,7 @@ import {
   cmdDebug,
   cmdUsage,
   cmdAttach,
+  cmdOpen,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -338,6 +339,13 @@ export function buildCli(): Command {
     .description('Attach an interactive terminal to a session (Ctrl+A q to detach)')
     .action(async (sessionId?: string) => {
       await cmdAttach(sessionId);
+    });
+
+  program
+    .command('open [sessionId]')
+    .description('Open a NEW terminal window/tab attached to a session (for AI-created views)')
+    .action(async (sessionId?: string) => {
+      await cmdOpen(sessionId);
     });
 
   program.action(() => {

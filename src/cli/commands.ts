@@ -324,6 +324,59 @@ export async function cmdAttach(sessionId?: string): Promise<void> {
   await attachToSession(id);
 }
 
+/** Path/args used to re-invoke this coterm binary as a CLI. */
+function cotermInvokeArgs(sub: string[]): string[] {
+  const pkg = (process as { pkg?: { entrypoint?: string } }).pkg;
+  const entry = resolveEntryScript();
+  if (pkg) return [pkg.entrypoint ?? '', ...sub];
+  if (/\.[cm]?ts$/.test(entry)) return ['--import', 'tsx', entry, ...sub];
+  return [entry, ...sub];
+}
+
+/**
+ * Open a NEW terminal window (Windows Terminal tab or a new console host)
+ * attached to the given session, so AI-created views pop up for the user.
+ */
+export async function cmdOpen(sessionId?: string): Promise<void> {
+  const id = await resolveSession(sessionId);
+  const exe = process.execPath;
+  const args = cotermInvokeArgs(['run', id]);
+
+  let launched = false;
+  if (isWindows()) {
+    // Prefer Windows Terminal (new tab in the current window), fall back to a
+    // fresh console host.
+    const wt = 'wt.exe';
+    try {
+      const wtArgs = ['new-tab', exe, ...args];
+      spawn(wt, wtArgs, { detached: true, stdio: 'ignore', windowsHide: true });
+      launched = true;
+    } catch {
+      launched = false;
+    }
+    if (!launched) {
+      const cmdLine = `"${exe}" ${args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`;
+      spawn('cmd.exe', ['/c', 'start', '', 'cmd', '/k', cmdLine], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      launched = true;
+    }
+  } else {
+    const term = process.env.TERM_PROGRAM === 'iTerm.app' ? 'iTerm' : process.env.TERM_PROGRAM === 'Apple_Terminal' ? 'open' : '';
+    const cmdLine = `"${exe}" ${args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}; exec bash`;
+    if (term === 'open') {
+      spawn('open', ['-a', 'Terminal', '--', 'bash', '-c', cmdLine], { detached: true, stdio: 'ignore' });
+    } else {
+      spawn('x-terminal-emulator', ['-e', 'bash', '-c', cmdLine], { detached: true, stdio: 'ignore' });
+    }
+    launched = true;
+  }
+
+  console.log(`Opened a new view for session ${id}.`);
+}
+
 /** Push this window's terminal size to the session so the PTY matches. */
 function syncTerminalSize(sessionId: string): void {
   const cols = process.stdout.columns ?? 80;
