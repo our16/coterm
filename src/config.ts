@@ -16,12 +16,20 @@ export interface CotermConfig {
 export const DEFAULT_MCP_PORT = 8377;
 export const DEFAULT_MCP_HOST = '127.0.0.1';
 
+export function getConfigDir(): string {
+  return path.join(os.homedir(), '.config', 'coterm');
+}
+
 export function getConfigPath(): string {
-  return path.join(os.homedir(), '.config', 'coterm.json');
+  return path.join(getConfigDir(), 'config.json');
 }
 
 export function getActiveMarkerPath(): string {
-  return path.join(os.homedir(), '.config', 'coterm-active');
+  return path.join(getConfigDir(), 'active');
+}
+
+export function getPowershellIntegrationPath(): string {
+  return path.join(getConfigDir(), 'powershell.ps1');
 }
 
 export function writeActiveMarker(): void {
