@@ -3,8 +3,10 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { sessionAPI } from '../api/session-api.js';
 import { startMcpServer, CoTermMcpServer } from '../mcp/server.js';
+import { startHttpMcpServer } from '../mcp/http-server.js';
 import { logger } from '../utils/logger.js';
 import { getTempDir, isWindows } from '../utils/platform.js';
+import { loadConfig, getMcpHost, getMcpPort, getConfigPath, saveConfig, setConfigValue } from '../config.js';
 
 const PID_FILE = path.join(getTempDir(), 'coterm.pid');
 
@@ -20,6 +22,8 @@ export interface StartOptions {
   identity?: string;
   distro?: string;
   container?: string;
+  httpPort?: number;
+  noSession?: boolean;
 }
 
 export async function cmdStart(options: StartOptions): Promise<void> {
@@ -36,6 +40,7 @@ export async function cmdStart(options: StartOptions): Promise<void> {
         container: options.container,
       }
     : undefined;
+
   if (options.noMcp) {
     const sessionId = await sessionAPI.createSession({
       name: options.name,
@@ -53,19 +58,29 @@ export async function cmdStart(options: StartOptions): Promise<void> {
 
   writePidFile();
 
-  const sessionId = await sessionAPI.createSession({
-    name: options.name ?? 'default',
-    shell: options.shell,
-    cwd: options.cwd,
-    connector,
+  if (!options.noSession) {
+    const sessionId = await sessionAPI.createSession({
+      name: options.name ?? 'default',
+      shell: options.shell,
+      cwd: options.cwd,
+      connector,
+    });
+    logger.info({ sessionId }, 'Started default session');
+  }
+
+  const config = loadConfig();
+  const host = getMcpHost(config);
+  const port = options.httpPort ?? getMcpPort(config);
+
+  const httpServer = await startHttpMcpServer(sessionAPI, {
+    host,
+    port,
   });
-  logger.info({ sessionId }, 'Started default session');
+  logger.info({ url: httpServer.url }, 'CoTerm daemon ready (single process, shared sessions)');
 
-  const mcp = await startMcpServer();
-  logger.info('CoTerm runtime + MCP server ready');
-
-  await waitForStdioClose(mcp);
-  await cleanup(mcp, sessionId);
+  await waitForSignal();
+  await httpServer.stop();
+  await cleanup();
 }
 
 export async function cmdMcp(): Promise<void> {
@@ -74,9 +89,9 @@ export async function cmdMcp(): Promise<void> {
   const mcp = await startMcpServer();
   logger.info('CoTerm MCP server ready (stdio)');
   await waitForStdioClose(mcp);
-  await cleanup(mcp);
+  await mcp.stop();
+  await cleanup();
 }
-
 export function cmdStop(): void {
   if (!fs.existsSync(PID_FILE)) {
     console.error('No CoTerm runtime PID file found — nothing to stop');
@@ -268,6 +283,29 @@ export function cmdWorkspaceStatus(workspaceId: string): void {
   }
 }
 
+export function cmdConfigShow(): void {
+  const configPath = getConfigPath();
+  const config = loadConfig();
+  console.log(`Config file: ${configPath}`);
+  console.log('');
+  console.log('Effective MCP endpoint:');
+  console.log(`  http://${getMcpHost(config)}:${getMcpPort(config)}/mcp`);
+  console.log('');
+  console.log(JSON.stringify(config, null, 2));
+}
+
+export function cmdConfigSet(key: string, value: string): void {
+  try {
+    const config = loadConfig();
+    setConfigValue(config, key, value);
+    saveConfig(config);
+    console.log(`Set ${key} = ${value} in ${getConfigPath()}`);
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
 export function cmdInterrupt(sessionId: string): void {
   try {
     sessionAPI.interrupt(sessionId, 'human');
@@ -316,19 +354,19 @@ function waitForStdioClose(mcp: CoTermMcpServer): Promise<void> {
   });
 }
 
-async function cleanup(mcp: CoTermMcpServer, sessionId?: string): Promise<void> {
-  try {
-    await mcp.stop();
-  } catch (err) {
-    logger.warn({ err }, 'Error stopping MCP server');
-  }
-  if (sessionId) {
-    try {
-      await sessionAPI.destroySession(sessionId);
-    } catch {
-      // session may already be closed
-    }
-  }
+function waitForSignal(): Promise<void> {
+  return new Promise((resolve) => {
+    const onSignal = () => {
+      process.off('SIGINT', onSignal);
+      process.off('SIGTERM', onSignal);
+      resolve();
+    };
+    process.on('SIGINT', onSignal);
+    process.on('SIGTERM', onSignal);
+  });
+}
+
+function cleanup(): void {
   fs.rmSync(PID_FILE, { force: true });
-  logger.info('CoTerm runtime stopped');
+  logger.info('CoTerm daemon stopped');
 }

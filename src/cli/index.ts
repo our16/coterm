@@ -22,6 +22,8 @@ import {
   cmdWorkspaceAdd,
   cmdWorkspaceRun,
   cmdWorkspaceStatus,
+  cmdConfigShow,
+  cmdConfigSet,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -34,7 +36,7 @@ export function buildCli(): Command {
 
   program
     .command('start')
-    .description('Start the CoTerm runtime with MCP server over stdio')
+    .description('Start the CoTerm daemon: a single shared process serving MCP over HTTP')
     .option('--shell <shell>', 'Shell executable to use for the default session')
     .option('--cwd <dir>', 'Working directory for the default session')
     .option('--name <name>', 'Name for the default session')
@@ -45,7 +47,9 @@ export function buildCli(): Command {
     .option('--identity <path>', 'Identity file (ssh connector)')
     .option('--distro <name>', 'WSL distribution (wsl connector)')
     .option('--container <name>', 'Container name/id (docker connector)')
-    .option('--no-mcp', 'Start runtime without the MCP server (debug mode)')
+    .option('--http-port <n>', 'MCP HTTP port for the daemon (default from ~/.config/coterm.json)')
+    .option('--no-session', 'Start the daemon without creating a default session')
+    .option('--no-mcp', 'Debug mode: create a session without starting any MCP server')
     .action(async (opts: Record<string, unknown>) => {
       await cmdStart({
         shell: opts.shell as string | undefined,
@@ -59,6 +63,8 @@ export function buildCli(): Command {
         identity: opts.identity as string | undefined,
         distro: opts.distro as string | undefined,
         container: opts.container as string | undefined,
+        httpPort: opts.httpPort === undefined ? undefined : Number(opts.httpPort),
+        noSession: opts.session === false,
       });
     });
 
@@ -69,7 +75,22 @@ export function buildCli(): Command {
       await cmdMcp();
     });
 
-  program.command('stop').description('Stop a running CoTerm runtime by PID file').action(() => {
+  program
+    .command('config')
+    .description('Show the CoTerm configuration (~/.config/coterm.json)')
+    .action(() => {
+      cmdConfigShow();
+    });
+
+  program
+    .command('config-set <key> <value>')
+    .description('Set a config value (mcp.host, mcp.port, defaultShell, defaultCwd)')
+    .action((key: string, value: string) => {
+      cmdConfigSet(key, value);
+    });
+
+  program
+    .command('stop').description('Stop a running CoTerm runtime by PID file').action(() => {
     cmdStop();
   });
 

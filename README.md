@@ -142,8 +142,40 @@ bun install
 # Type-check and run tests
 bun run typecheck
 bun test
+```
 
-# Start the MCP server over stdio (for AI agents / Claude / OpenHands / ...)
+### Start the daemon (shared, single-process runtime)
+
+```bash
+# Start the daemon: one process holds all sessions, served over MCP HTTP
+tsx src/index.ts start --shell powershell.exe
+
+# Default MCP endpoint: http://127.0.0.1:8377/mcp
+```
+
+### Configuration (`~/.config/coterm.json`)
+
+The daemon reads its MCP port/host and shell defaults from a config file. CLI flags always override it.
+
+```bash
+coterm config                       # show config path + effective MCP endpoint
+coterm config-set mcp.port 9000     # change the MCP port
+coterm config-set mcp.host 0.0.0.0  # bind all interfaces
+coterm config-set defaultShell cmd.exe
+```
+
+```json
+{
+  "mcp": { "host": "127.0.0.1", "port": 8377 },
+  "defaultShell": "powershell.exe",
+  "defaultCwd": "C:\\work"
+}
+```
+
+### Single-agent MCP over stdio (ad-hoc)
+
+```bash
+# Start only the MCP server over stdio (for one agent / Claude / OpenHands / ...)
 bun run dev -- mcp
 # or
 tsx src/index.ts mcp
@@ -152,10 +184,7 @@ tsx src/index.ts mcp
 ### Create a session and run a command (CLI)
 
 ```bash
-# Start a runtime with a default session and an MCP server over stdio
-tsx src/index.ts start --shell powershell.exe
-
-# In another terminal, manage sessions
+# Connect to a running daemon
 tsx src/index.ts list
 tsx src/index.ts status <sessionId>     # cwd, toolchains, full-screen app, command graph
 tsx src/index.ts history <sessionId>    # command graph
@@ -175,7 +204,24 @@ tsx src/index.ts start --connector docker --container web
 
 ## Connecting an AI Agent (MCP)
 
-Any MCP-compatible client connects by spawning the server:
+### Multiple agents sharing one daemon (recommended)
+
+Run a single daemon, then any number of agents connect over HTTP and **share the same sessions**:
+
+```json
+{
+  "mcpServers": {
+    "coterm": {
+      "type": "http",
+      "url": "http://127.0.0.1:8377/mcp"
+    }
+  }
+}
+```
+
+Agent A creates a session; Agent B sees and attaches to it — one process, one shared session registry.
+
+### Single agent over stdio (ad-hoc)
 
 ```json
 {

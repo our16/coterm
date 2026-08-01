@@ -1,0 +1,65 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
+export interface CotermMcpConfig {
+  host?: string;
+  port?: number;
+}
+
+export interface CotermConfig {
+  mcp?: CotermMcpConfig;
+  defaultShell?: string;
+  defaultCwd?: string;
+}
+
+export const DEFAULT_MCP_PORT = 8377;
+export const DEFAULT_MCP_HOST = '127.0.0.1';
+
+export function getConfigPath(): string {
+  return path.join(os.homedir(), '.config', 'coterm.json');
+}
+
+export function loadConfig(): CotermConfig {
+  try {
+    const raw = fs.readFileSync(getConfigPath(), 'utf8');
+    const parsed = JSON.parse(raw) as CotermConfig;
+    return parsed ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveConfig(config: CotermConfig): void {
+  const dir = path.dirname(getConfigPath());
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2), 'utf8');
+}
+
+export function getMcpHost(config: CotermConfig = loadConfig()): string {
+  return config.mcp?.host ?? DEFAULT_MCP_HOST;
+}
+
+export function getMcpPort(config: CotermConfig = loadConfig()): number {
+  return config.mcp?.port ?? DEFAULT_MCP_PORT;
+}
+
+export function setConfigValue(config: CotermConfig, key: string, value: string): CotermConfig {
+  switch (key) {
+    case 'mcp.host':
+      config.mcp = { ...(config.mcp ?? {}), host: value };
+      break;
+    case 'mcp.port':
+      config.mcp = { ...(config.mcp ?? {}), port: Number(value) };
+      break;
+    case 'defaultShell':
+      config.defaultShell = value;
+      break;
+    case 'defaultCwd':
+      config.defaultCwd = value;
+      break;
+    default:
+      throw new Error(`Unknown config key: ${key} (supported: mcp.host, mcp.port, defaultShell, defaultCwd)`);
+  }
+  return config;
+}

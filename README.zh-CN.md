@@ -142,8 +142,40 @@ bun install
 # 类型检查与测试
 bun run typecheck
 bun test
+```
 
-# 通过 stdio 启动 MCP 服务器（供 AI Agent / Claude / OpenHands 等接入）
+### 启动守护进程（单进程共享运行时）
+
+```bash
+# 启动 daemon：一个进程持有所有会话，通过 MCP HTTP 提供服务
+tsx src/index.ts start --shell powershell.exe
+
+# 默认 MCP 端点：http://127.0.0.1:8377/mcp
+```
+
+### 配置文件（`~/.config/coterm.json`）
+
+daemon 从配置文件读取 MCP 端口/主机和 Shell 默认值。CLI 参数始终覆盖配置。
+
+```bash
+coterm config                       # 查看配置路径 + 生效的 MCP 端点
+coterm config-set mcp.port 9000     # 修改 MCP 端口
+coterm config-set mcp.host 0.0.0.0  # 绑定所有网卡
+coterm config-set defaultShell cmd.exe
+```
+
+```json
+{
+  "mcp": { "host": "127.0.0.1", "port": 8377 },
+  "defaultShell": "powershell.exe",
+  "defaultCwd": "C:\\work"
+}
+```
+
+### 单 Agent 的 stdio MCP（临时使用）
+
+```bash
+# 仅通过 stdio 启动 MCP 服务器（供单个 Agent / Claude / OpenHands 等接入）
 bun run dev -- mcp
 # 或
 tsx src/index.ts mcp
@@ -152,10 +184,7 @@ tsx src/index.ts mcp
 ### 创建会话并执行命令（CLI）
 
 ```bash
-# 启动一个带默认会话 + stdio MCP 服务器的运行时
-tsx src/index.ts start --shell powershell.exe
-
-# 在另一个终端管理会话
+# 连接到正在运行的 daemon
 tsx src/index.ts list
 tsx src/index.ts status <sessionId>     # cwd、工具链、全屏应用、命令图
 tsx src/index.ts history <sessionId>    # 命令图
@@ -175,7 +204,24 @@ tsx src/index.ts start --connector docker --container web
 
 ## 接入 AI Agent（MCP）
 
-任何兼容 MCP 的客户端，通过 spawn 服务器即可接入：
+### 多个 Agent 共享一个 daemon（推荐）
+
+运行单个 daemon，任意多个 Agent 通过 HTTP 接入，**共享同一批会话**：
+
+```json
+{
+  "mcpServers": {
+    "coterm": {
+      "type": "http",
+      "url": "http://127.0.0.1:8377/mcp"
+    }
+  }
+}
+```
+
+Agent A 创建会话，Agent B 能看到并 attach——一个进程、一个共享会话注册表。
+
+### 单 Agent 的 stdio（临时使用）
 
 ```json
 {
