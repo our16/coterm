@@ -2,7 +2,7 @@ import type { CommandRecord, ConnectorConfig, PtyAdapter, RecordedEvent, Request
 import { SessionManager } from '../core/session-manager.js';
 import { eventBus } from '../core/event-bus.js';
 import { uuid } from '../utils/uuid.js';
-import { detectDefaultShell } from '../utils/platform.js';
+import { detectDefaultShell, checkShellSpawnable, resolveShellPath } from '../utils/platform.js';
 import { ConnectorManager, connectorManager } from '../connectors/connector-manager.js';
 import { createSnapshot, applySnapshot } from '../ai/snapshot.js';
 import { createPtyAdapter } from '../pty/factory.js';
@@ -109,10 +109,22 @@ export class SessionAPI {
       env = options.env ?? resolved.env ?? {};
     }
 
+    const check = checkShellSpawnable(shell);
+    if (!check.ok) {
+      throw new Error(check.reason);
+    }
+
+    // Resolve a bare shell name to a real, node-pty-spawnable path (e.g. a
+    // Store/MSIX pwsh alias -> C:\Program Files\WindowsApps\...\pwsh.exe).
+    let spawnShell = shell;
+    if (!options.connector) {
+      spawnShell = resolveShellPath(shell) ?? shell;
+    }
+
     const fullConfig: SessionConfig = {
       id,
-      name: options.name ?? this.deriveName(cwd, shell, options.connector),
-      shell,
+      name: options.name ?? this.deriveName(cwd, spawnShell, options.connector),
+      shell: spawnShell,
       shellArgs,
       cwd,
       cols: options.cols ?? this.options.cols,
