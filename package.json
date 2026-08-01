@@ -1,8 +1,23 @@
 {
   "name": "coterm",
   "version": "0.1.0",
-  "description": "AI Session Runtime — manage terminal sessions for AI collaboration",
+  "description": "AI-native Terminal Session Runtime — the runtime layer between AI and the terminal",
   "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "terminal",
+    "session",
+    "pty",
+    "conpty",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agent",
+    "runtime",
+    "ssh",
+    "wsl",
+    "docker"
+  ],
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "bun build src/index.ts --outdir=dist --target=node",
@@ -10,6 +25,9 @@
     "typecheck": "tsc --noEmit",
     "package:windows": "bun run build:cjs && pkg dist/index.cjs --target node18-win-x64 --output coterm.exe --compress GZip",
     "build:cjs": "bun build src/index.ts --target=node --format=cjs --external=node-pty --outfile=dist/index.cjs"
+  },
+  "bin": {
+    "coterm": "src/index.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
