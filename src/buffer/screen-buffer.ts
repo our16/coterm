@@ -44,6 +44,10 @@ export class ScreenBuffer {
   }
 
   private stripAnsi(text: string): string {
-    return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+    return text
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '') // CSI
+      .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '') // OSC title
+      .replace(/\x1b[()][0-9A-Za-z]/g, '') // charset selection
+      .replace(/\x1b[@-Z\\-_]/g, ''); // other single-char ESC sequences
   }
 }
