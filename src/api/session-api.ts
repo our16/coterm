@@ -68,6 +68,31 @@ export class SessionAPI {
     return session;
   }
 
+  /** Derive a tab-like session label from the session's working directory. */
+  private deriveName(cwd: string, shell: string, connector?: ConnectorConfig): string {
+    // Remote/docker sessions: label by target instead of a local path.
+    if (connector) {
+      const target = connector.container || connector.distro || connector.host;
+      if (target) return target;
+    }
+    // Prefer the shell's display name when the cwd is a root/home dir
+    // (whose basename would be meaningless, e.g. `C:\` or `Admin`).
+    const parsed = cwd.replace(/[\\/]+$/, '');
+    const base = parsed.split(/[\\/]/).pop();
+    if (base) {
+      const shellName = shell.replace(/\.exe$/i, '').replace(/[\\/].*$/, '').split(/[\\/]/).pop() ?? 'shell';
+      const homeish =
+        /^[A-Za-z]:$/.test(parsed) ||
+        base === 'Users' ||
+        base === 'home' ||
+        (process.env.USERPROFILE && cwd.replace(/[\\/]+$/, '').toLowerCase() === process.env.USERPROFILE.toLowerCase()) ||
+        (process.env.HOME && cwd.replace(/[\\/]+$/, '').toLowerCase() === process.env.HOME.toLowerCase());
+      if (!homeish) return base;
+      return shellName;
+    }
+    return shell;
+  }
+
   async createSession(options: SessionCreateOptions = {}): Promise<string> {
     const id = options.id ?? uuid();
 
@@ -86,7 +111,7 @@ export class SessionAPI {
 
     const fullConfig: SessionConfig = {
       id,
-      name: options.name ?? id,
+      name: options.name ?? this.deriveName(cwd, shell, options.connector),
       shell,
       shellArgs,
       cwd,

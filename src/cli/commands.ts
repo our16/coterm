@@ -116,7 +116,7 @@ export async function cmdStart(options: StartOptions): Promise<void> {
 
   if (!options.noSession) {
     const sessionId = await sessionAPI.createSession({
-      name: options.name ?? 'default',
+      name: options.name,
       shell: effectiveShell(options.shell),
       cwd: effectiveCwd(options.cwd),
       connector,
@@ -569,7 +569,7 @@ export async function cmdActivate(options: { shell?: string; cwd?: string; name?
   if (!sessionId) {
     console.log('Creating a session for this window...');
     const { text, isError } = await callDaemon('terminal_create', {
-      name: options.name ?? 'default',
+      name: options.name,
       shell: effectiveShell(options.shell),
       cwd: effectiveCwd(options.cwd),
     });
