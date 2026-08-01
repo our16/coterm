@@ -1,4 +1,4 @@
-import * as fs from 'node:fs';
+﻿import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync, spawn } from 'node:child_process';
@@ -107,7 +107,7 @@ export async function cmdStart(options: StartOptions): Promise<void> {
   }
 
   const config = loadConfig();
-  const host = getMcpHost(config);
+  const host = getMcpHost();
   const port = options.httpPort ?? getMcpPort(config);
 
   const httpServer = await startHttpMcpServer(sessionAPI, {
@@ -133,7 +133,7 @@ export async function cmdMcp(): Promise<void> {
 export function cmdStop(): void {
   removeActiveMarker();
   if (!fs.existsSync(PID_FILE)) {
-    console.error('No CoTerm runtime PID file found — nothing to stop');
+    console.error('No CoTerm runtime PID file found 鈥?nothing to stop');
     return;
   }
   const pid = Number(fs.readFileSync(PID_FILE, 'utf8').trim());
@@ -275,7 +275,7 @@ export async function cmdList(): Promise<void> {
     const { text } = await callDaemon('terminal_list');
     const sessions = JSON.parse(text);
     if (sessions.length === 0) {
-      console.log('(no sessions — run: coterm create)');
+      console.log('(no sessions 鈥?run: coterm create)');
       return;
     }
     console.log(`${'ID'.padEnd(38)}  ${'NAME'.padEnd(12)}  ${'STATE'.padEnd(9)}  ${'SHELL'.padEnd(16)}  CWD`);
@@ -531,7 +531,7 @@ export function cmdConfigShow(): void {
   console.log(`Config file: ${configPath}`);
   console.log('');
   console.log('Effective MCP endpoint:');
-  console.log(`  http://${getMcpHost(config)}:${getMcpPort(config)}/mcp`);
+  console.log(`  http://${getMcpHost()}:${getMcpPort(config)}/mcp`);
   console.log('');
   console.log(JSON.stringify(config, null, 2));
 }

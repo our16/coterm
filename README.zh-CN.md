@@ -165,15 +165,14 @@ coterm stop                               # 退出环境（停止 daemon）
 daemon 从配置文件读取 MCP 端口/主机和 Shell 默认值。CLI 参数始终覆盖配置。
 
 ```bash
-coterm config                       # 查看配置路径 + 生效的 MCP 端点
-coterm config-set mcp.port 9000     # 修改 MCP 端口
-coterm config-set mcp.host 0.0.0.0  # 绑定所有网卡
+coterm config                        # 查看配置路径 + 生效的 MCP 端点
+coterm config-set mcp_server_port 9000   # 修改 MCP 端口
 coterm config-set defaultShell cmd.exe
 ```
 
 ```json
 {
-  "mcp": { "host": "127.0.0.1", "port": 8377 },
+  "mcp_server_port": 8377,
   "defaultShell": "powershell.exe",
   "defaultCwd": "C:\\work"
 }

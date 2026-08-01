@@ -1,4 +1,4 @@
-import * as http from 'node:http';
+﻿import * as http from 'node:http';
 import { getMcpHost, getMcpPort, loadConfig } from '../config.js';
 
 export interface DaemonResult {
@@ -8,7 +8,7 @@ export interface DaemonResult {
 
 export function getDaemonUrl(): string {
   const config = loadConfig();
-  return `http://${getMcpHost(config)}:${getMcpPort(config)}/mcp`;
+  return `http://${getMcpHost()}:${getMcpPort(config)}/mcp`;
 }
 
 interface CliResponse {
@@ -45,7 +45,7 @@ function postJson(host: string, port: number, body: unknown): Promise<CliRespons
 
 export async function callDaemon(tool: string, args: Record<string, unknown> = {}): Promise<DaemonResult> {
   const config = loadConfig();
-  const { status, data } = await postJson(getMcpHost(config), getMcpPort(config), { tool, args });
+  const { status, data } = await postJson(getMcpHost(), getMcpPort(config), { tool, args });
   if (status !== 200) {
     throw new Error(`Daemon request failed (HTTP ${status})`);
   }

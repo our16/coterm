@@ -131,7 +131,7 @@ export function buildCli(): Command {
 
   program
     .command('config-set <key> <value>')
-    .description('Set a config value (mcp.host, mcp.port, defaultShell, defaultCwd)')
+    .description('Set a config value (mcp_server_port, defaultShell, defaultCwd)')
     .action((key: string, value: string) => {
       cmdConfigSet(key, value);
     });

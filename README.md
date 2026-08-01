@@ -165,15 +165,14 @@ Commands pick the first running session when you omit a session id. To target a 
 The daemon reads its MCP port/host and shell defaults from a config file. CLI flags always override it.
 
 ```bash
-coterm config                       # show config path + effective MCP endpoint
-coterm config-set mcp.port 9000     # change the MCP port
-coterm config-set mcp.host 0.0.0.0  # bind all interfaces
+coterm config                        # show config path + effective MCP endpoint
+coterm config-set mcp_server_port 9000   # change the MCP port
 coterm config-set defaultShell cmd.exe
 ```
 
 ```json
 {
-  "mcp": { "host": "127.0.0.1", "port": 8377 },
+  "mcp_server_port": 8377,
   "defaultShell": "powershell.exe",
   "defaultCwd": "C:\\work"
 }

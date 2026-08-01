@@ -3,13 +3,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { detectDefaultShell } from './utils/platform.js';
 
-export interface CotermMcpConfig {
-  host?: string;
-  port?: number;
-}
-
 export interface CotermConfig {
-  mcp?: CotermMcpConfig;
+  mcp_server_port?: number;
   defaultShell?: string;
   defaultCwd?: string;
 }
@@ -35,7 +30,7 @@ export function getPowershellIntegrationPath(): string {
 
 export function getDefaultConfig(): CotermConfig {
   return {
-    mcp: { host: DEFAULT_MCP_HOST, port: DEFAULT_MCP_PORT },
+    mcp_server_port: DEFAULT_MCP_PORT,
     defaultShell: detectDefaultShell(),
   };
 }
@@ -86,21 +81,20 @@ export function saveConfig(config: CotermConfig): void {
   fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2), 'utf8');
 }
 
-export function getMcpHost(config: CotermConfig = loadConfig()): string {
-  return config.mcp?.host ?? DEFAULT_MCP_HOST;
+export function getMcpHost(): string {
+  // The MCP server always binds to the local machine.
+  return DEFAULT_MCP_HOST;
 }
 
 export function getMcpPort(config: CotermConfig = loadConfig()): number {
-  return config.mcp?.port ?? DEFAULT_MCP_PORT;
+  return config.mcp_server_port ?? DEFAULT_MCP_PORT;
 }
 
 export function setConfigValue(config: CotermConfig, key: string, value: string): CotermConfig {
   switch (key) {
-    case 'mcp.host':
-      config.mcp = { ...(config.mcp ?? {}), host: value };
-      break;
+    case 'mcp_server_port':
     case 'mcp.port':
-      config.mcp = { ...(config.mcp ?? {}), port: Number(value) };
+      config.mcp_server_port = Number(value);
       break;
     case 'defaultShell':
       config.defaultShell = value;
@@ -109,7 +103,7 @@ export function setConfigValue(config: CotermConfig, key: string, value: string)
       config.defaultCwd = value;
       break;
     default:
-      throw new Error(`Unknown config key: ${key} (supported: mcp.host, mcp.port, defaultShell, defaultCwd)`);
+      throw new Error(`Unknown config key: ${key} (supported: mcp_server_port, defaultShell, defaultCwd)`);
   }
   return config;
 }
