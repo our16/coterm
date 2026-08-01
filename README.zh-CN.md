@@ -144,14 +144,21 @@ bun run typecheck
 bun test
 ```
 
-### 启动守护进程（单进程共享运行时）
+### 激活环境（类似 conda activate）
 
 ```bash
-# 启动 daemon：一个进程持有所有会话，通过 MCP HTTP 提供服务
-tsx src/index.ts start --shell powershell.exe
+coterm            # 若 daemon 未运行则自动启动，然后进入共享环境
+coterm activate   # 同上，显式调用
 
-# 默认 MCP 端点：http://127.0.0.1:8377/mcp
+# 之后所有命令都作用于共享环境的默认会话
+coterm run --command "kubectl get pods"   # 在原生 shell 会话中执行（无需指定会话 id）
+coterm status                             # cwd、工具链、命令图
+coterm list                               # 所有会话
+coterm env                                # 环境状态
+coterm stop                               # 退出环境（停止 daemon）
 ```
+
+省略会话 id 时，命令自动选择第一个运行中的会话；要指定某个会话：`coterm status <sessionId>`。
 
 ### 配置文件（`~/.config/coterm.json`）
 
@@ -172,32 +179,12 @@ coterm config-set defaultShell cmd.exe
 }
 ```
 
-### 单 Agent 的 stdio MCP（临时使用）
+### 创建带连接器的会话
 
 ```bash
-# 仅通过 stdio 启动 MCP 服务器（供单个 Agent / Claude / OpenHands 等接入）
-bun run dev -- mcp
-# 或
-tsx src/index.ts mcp
-```
-
-### 创建会话并执行命令（CLI）
-
-```bash
-# 连接到正在运行的 daemon
-tsx src/index.ts list
-tsx src/index.ts status <sessionId>     # cwd、工具链、全屏应用、命令图
-tsx src/index.ts history <sessionId>    # 命令图
-tsx src/index.ts write <sessionId> --command "kubectl get pods"
-tsx src/index.ts wait <sessionId> --timeout 30000
-```
-
-### 连接 SSH / WSL / Docker 会话
-
-```bash
-tsx src/index.ts start --connector ssh --host jump.company.com --user admin --port 22
-tsx src/index.ts start --connector wsl --distro Ubuntu
-tsx src/index.ts start --connector docker --container web
+coterm create --connector ssh --host jump.company.com --user admin --port 22
+coterm create --connector wsl --distro Ubuntu
+coterm create --connector docker --container web
 ```
 
 ---

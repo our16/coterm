@@ -1,14 +1,37 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { sessionAPI } from '../api/session-api.js';
 import { startMcpServer, CoTermMcpServer } from '../mcp/server.js';
 import { startHttpMcpServer } from '../mcp/http-server.js';
 import { logger } from '../utils/logger.js';
 import { getTempDir, isWindows } from '../utils/platform.js';
 import { loadConfig, getMcpHost, getMcpPort, getConfigPath, saveConfig, setConfigValue } from '../config.js';
+import { callDaemon, daemonAlive, waitForDaemon, listSessionsFromDaemon, getDaemonUrl, resolveSession } from './daemon-client.js';
 
 const PID_FILE = path.join(getTempDir(), 'coterm.pid');
+
+function daemonError(err: unknown): void {
+  const message = (err as Error).message ?? String(err);
+  if (/ECONNREFUSED|fetch failed|not running|connect/i.test(message)) {
+    console.error('CoTerm environment is not active.');
+    console.error('Start it first: coterm activate');
+  } else {
+    console.error(message);
+  }
+  process.exitCode = 1;
+}
+
+function spawnDaemonBackground(): void {
+  const isPkg = !!(process as { pkg?: boolean }).pkg;
+  const args = isPkg ? ['start'] : [process.argv[1] ?? 'src/index.ts', 'start'];
+  const child = spawn(process.execPath, args, {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+}
 
 export interface StartOptions {
   shell?: string;
@@ -116,106 +139,246 @@ export function cmdStop(): void {
   }
 }
 
-export function cmdList(): void {
-  console.log(JSON.stringify(sessionAPI.listSessions(), null, 2));
-}
-
-export function cmdInfo(sessionId: string): void {
+export async function cmdCreate(options: { name?: string; shell?: string; cwd?: string; connector?: string; host?: string; port?: number; user?: string; identity?: string; distro?: string; container?: string } = {}): Promise<void> {
   try {
-    console.log(JSON.stringify(sessionAPI.getSession(sessionId), null, 2));
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
-  }
-}
-
-export function cmdRead(sessionId: string, lines: number = 50): void {
-  try {
-    console.log(sessionAPI.readText(sessionId, lines) || '(no output yet)');
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
-  }
-}
-
-export async function cmdWrite(sessionId: string, command: string): Promise<void> {
-  try {
-    await sessionAPI.runCommand(sessionId, command, 'human');
-    console.log(`Wrote command to session ${sessionId}`);
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
-  }
-}
-
-export async function cmdWait(sessionId: string, timeout: number = 30000): Promise<void> {
-  try {
-    const prompt = await sessionAPI.waitForPrompt(sessionId, timeout);
-    console.log(`Prompt detected: ${JSON.stringify(prompt)}`);
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
-  }
-}
-
-export function cmdResize(sessionId: string, cols: number, rows: number): void {
-  try {
-    sessionAPI.resize(sessionId, cols, rows);
-    console.log(`Resized session ${sessionId} to ${cols}x${rows}`);
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
-  }
-}
-
-export function cmdStatus(sessionId: string): void {
-  try {
-    console.log(JSON.stringify(sessionAPI.getIntelligence(sessionId), null, 2));
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
-  }
-}
-
-export function cmdHistory(sessionId: string, limit: number = 50): void {
-  try {
-    const history = sessionAPI.getHistory(sessionId).slice(-limit);
-    console.log(JSON.stringify(history, null, 2));
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
-  }
-}
-
-export function cmdRecord(sessionId: string, action: 'start' | 'stop'): void {
-  try {
-    if (action === 'start') {
-      sessionAPI.startRecording(sessionId);
-      console.log(`Recording started for session ${sessionId}`);
-    } else {
-      sessionAPI.stopRecording(sessionId);
-      console.log(`Recording stopped for session ${sessionId} (${sessionAPI.getRecording(sessionId).length} events)`);
+    const connector = options.connector
+      ? {
+          type: options.connector as 'local' | 'ssh' | 'wsl' | 'docker',
+          host: options.host,
+          port: options.port,
+          user: options.user,
+          identity: options.identity,
+          distro: options.distro,
+          container: options.container,
+        }
+      : undefined;
+    const { text, isError } = await callDaemon('terminal_create', {
+      name: options.name,
+      shell: options.shell,
+      cwd: options.cwd,
+      connector,
+    });
+    if (isError) {
+      console.error(text);
+      process.exitCode = 1;
+      return;
     }
+    const { sessionId } = JSON.parse(text);
+    console.log(`Session created: ${sessionId}`);
+    console.log(`Use: coterm status ${sessionId}`);
   } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
+    daemonError(err);
   }
 }
 
-export function cmdReplay(sessionId: string, format: 'jsonl' | 'json' = 'jsonl'): void {
-  try {
-    const body = format === 'jsonl' ? sessionAPI.getRecordingJsonl(sessionId) : JSON.stringify(sessionAPI.getRecording(sessionId), null, 2);
-    console.log(body || '(no recorded events)');
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
+export async function cmdActivate(options: { shell?: string; cwd?: string; name?: string } = {}): Promise<void> {
+  if (await daemonAlive()) {
+    console.log('CoTerm environment already active.');
+  } else {
+    console.log('Starting CoTerm daemon...');
+    spawnDaemonBackground();
+    if (!(await waitForDaemon(15000))) {
+      console.error('Timed out waiting for the CoTerm daemon to start.');
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`CoTerm daemon started: ${getDaemonUrl()}`);
+  }
+
+  const sessions = await listSessionsFromDaemon();
+  if (sessions.length === 0) {
+    console.log('Creating a default session...');
+    const { text, isError } = await callDaemon('terminal_create', {
+      name: options.name ?? 'default',
+      shell: options.shell,
+      cwd: options.cwd,
+    });
+    if (isError) {
+      console.error(text);
+      process.exitCode = 1;
+      return;
+    }
+    const { sessionId } = JSON.parse(text);
+    console.log(`Default session ready: ${sessionId}`);
+  } else {
+    console.log(`Sessions in environment: ${sessions.length}`);
+  }
+
+  console.log('');
+  console.log('CoTerm environment activated.');
+  console.log('  - coterm list / status / run / read  act on this environment');
+  console.log(`  - MCP endpoint: ${getDaemonUrl()}`);
+  console.log(`  - deactivate: coterm stop`);
+}
+
+export async function cmdEnvStatus(): Promise<void> {
+  if (!(await daemonAlive())) {
+    console.log('CoTerm environment: INACTIVE');
+    console.log(`Run: coterm activate`);
+    return;
+  }
+  const sessions = await listSessionsFromDaemon();
+  console.log(`CoTerm environment: ACTIVE (${getDaemonUrl()})`);
+  console.log(`Sessions: ${sessions.length}`);
+  for (const s of sessions) {
+    console.log(`  - ${s.name}  [${s.state}]  ${s.id}`);
   }
 }
 
-export function cmdSnapshot(sessionId: string, outFile?: string): void {
+export async function cmdList(): Promise<void> {
   try {
-    const snapshot = sessionAPI.snapshot(sessionId);
-    const body = JSON.stringify(snapshot, null, 2);
+    const { text } = await callDaemon('terminal_list');
+    const sessions = JSON.parse(text);
+    if (sessions.length === 0) {
+      console.log('(no sessions — run: coterm create)');
+      return;
+    }
+    console.log(JSON.stringify(sessions, null, 2));
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdInfo(sessionId?: string): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text } = await callDaemon('terminal_status', { sessionId: id });
+    console.log(JSON.stringify(JSON.parse(text), null, 2));
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdRead(sessionId?: string, lines: number = 50): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text, isError } = await callDaemon('terminal_read', { sessionId: id, lines });
+    if (isError) {
+      console.error(text);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(text || '(no output yet)');
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdWrite(sessionId: string | undefined, command: string): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text, isError } = await callDaemon('terminal_run', { sessionId: id, command, timeout: 30000 });
+    if (isError) {
+      console.error(text);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(text);
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdWait(sessionId: string | undefined, timeout: number = 30000): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text, isError } = await callDaemon('terminal_wait_prompt', { sessionId: id, timeout });
+    if (isError) {
+      console.error(text);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(text);
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdResize(sessionId: string | undefined, cols: number, rows: number): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text } = await callDaemon('terminal_resize', { sessionId: id, cols, rows });
+    console.log(text);
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdStatus(sessionId?: string): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text, isError } = await callDaemon('terminal_status', { sessionId: id });
+    if (isError) {
+      console.error(text);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(JSON.parse(text), null, 2));
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdHistory(sessionId?: string, limit: number = 50): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text } = await callDaemon('terminal_history', { sessionId: id, limit });
+    console.log(JSON.stringify(JSON.parse(text), null, 2));
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdInterrupt(sessionId?: string): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text } = await callDaemon('terminal_interrupt', { sessionId: id });
+    console.log(text);
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdClose(sessionId?: string): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text } = await callDaemon('terminal_close', { sessionId: id });
+    console.log(text);
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdRecord(sessionId: string | undefined, action: 'start' | 'stop'): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text } = await callDaemon('terminal_recording', { sessionId: id, action });
+    console.log(text);
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdReplay(sessionId: string | undefined, format: 'jsonl' | 'json' = 'jsonl'): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text } = await callDaemon('terminal_replay', { sessionId: id, format });
+    console.log(text || '(no recorded events)');
+  } catch (err) {
+    daemonError(err);
+  }
+}
+
+export async function cmdSnapshot(sessionId: string | undefined, outFile?: string): Promise<void> {
+  try {
+    const id = await resolveSession(sessionId);
+    const { text, isError } = await callDaemon('terminal_snapshot', { sessionId: id });
+    if (isError) {
+      console.error(text);
+      process.exitCode = 1;
+      return;
+    }
+    const body = JSON.stringify(JSON.parse(text), null, 2);
     if (outFile) {
       fs.writeFileSync(outFile, body);
       console.log(`Snapshot written to ${outFile}`);
@@ -223,63 +386,68 @@ export function cmdSnapshot(sessionId: string, outFile?: string): void {
       console.log(body);
     }
   } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
+    daemonError(err);
   }
 }
 
 export async function cmdRestore(snapshotFile: string): Promise<void> {
   try {
     const raw = fs.readFileSync(snapshotFile, 'utf8');
-    const snapshot = JSON.parse(raw);
-    const sessionId = await sessionAPI.restore(snapshot);
-    console.log(`Restored session: ${sessionId}`);
+    const { text, isError } = await callDaemon('terminal_restore', { snapshot: raw });
+    if (isError) {
+      console.error(text);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(text);
   } catch (err) {
-    console.error(`Failed to restore: ${(err as Error).message}`);
-    process.exitCode = 1;
+    daemonError(err);
   }
 }
 
-export function cmdWorkspaceCreate(name: string): void {
+export async function cmdWorkspaceCreate(name: string): Promise<void> {
   try {
-    const workspaceId = sessionAPI.createWorkspace(name);
-    console.log(`Workspace created: ${workspaceId}`);
+    const { text } = await callDaemon('workspace_create', { name });
+    console.log(text);
   } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
+    daemonError(err);
   }
 }
 
-export function cmdWorkspaceList(): void {
-  console.log(JSON.stringify(sessionAPI.listWorkspaces(), null, 2));
+export async function cmdWorkspaceList(): Promise<void> {
+  try {
+    const { text } = await callDaemon('workspace_list');
+    console.log(JSON.stringify(JSON.parse(text), null, 2));
+  } catch (err) {
+    daemonError(err);
+  }
 }
 
-export function cmdWorkspaceAdd(workspaceId: string, sessionId: string): void {
+export async function cmdWorkspaceAdd(workspaceId: string, sessionId?: string): Promise<void> {
   try {
-    sessionAPI.addToWorkspace(workspaceId, sessionId);
-    console.log(`Added session ${sessionId} to workspace ${workspaceId}`);
+    const id = await resolveSession(sessionId);
+    const { text } = await callDaemon('workspace_add', { workspaceId, sessionId: id });
+    console.log(text);
   } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
+    daemonError(err);
   }
 }
 
 export async function cmdWorkspaceRun(workspaceId: string, command: string): Promise<void> {
   try {
-    const results = await sessionAPI.runInWorkspace(workspaceId, command, 'human');
-    console.log(JSON.stringify(results, null, 2));
+    const { text } = await callDaemon('workspace_run', { workspaceId, command });
+    console.log(JSON.stringify(JSON.parse(text), null, 2));
   } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
+    daemonError(err);
   }
 }
 
-export function cmdWorkspaceStatus(workspaceId: string): void {
+export async function cmdWorkspaceStatus(workspaceId: string): Promise<void> {
   try {
-    console.log(JSON.stringify(sessionAPI.getWorkspaceStatus(workspaceId), null, 2));
+    const { text } = await callDaemon('workspace_status', { workspaceId });
+    console.log(JSON.stringify(JSON.parse(text), null, 2));
   } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
+    daemonError(err);
   }
 }
 
@@ -300,26 +468,6 @@ export function cmdConfigSet(key: string, value: string): void {
     setConfigValue(config, key, value);
     saveConfig(config);
     console.log(`Set ${key} = ${value} in ${getConfigPath()}`);
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
-  }
-}
-
-export function cmdInterrupt(sessionId: string): void {
-  try {
-    sessionAPI.interrupt(sessionId, 'human');
-    console.log(`Interrupted session ${sessionId}`);
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exitCode = 1;
-  }
-}
-
-export async function cmdClose(sessionId: string): Promise<void> {
-  try {
-    await sessionAPI.destroySession(sessionId);
-    console.log(`Closed session ${sessionId}`);
   } catch (err) {
     console.error((err as Error).message);
     process.exitCode = 1;

@@ -144,14 +144,21 @@ bun run typecheck
 bun test
 ```
 
-### Start the daemon (shared, single-process runtime)
+### Activate the environment (conda-activate style)
 
 ```bash
-# Start the daemon: one process holds all sessions, served over MCP HTTP
-tsx src/index.ts start --shell powershell.exe
+coterm            # starts the daemon (if not running) and activates the shared environment
+coterm activate   # same, explicit
 
-# Default MCP endpoint: http://127.0.0.1:8377/mcp
+# Now every command acts on the shared environment's default session
+coterm run --command "kubectl get pods"   # runs in the native shell session (no session id needed)
+coterm status                             # cwd, toolchains, command graph
+coterm list                               # all sessions
+coterm env                                # environment status
+coterm stop                               # deactivate (stops the daemon)
 ```
+
+Commands pick the first running session when you omit a session id. To target a specific session, pass it: `coterm status <sessionId>`.
 
 ### Configuration (`~/.config/coterm.json`)
 
@@ -172,32 +179,12 @@ coterm config-set defaultShell cmd.exe
 }
 ```
 
-### Single-agent MCP over stdio (ad-hoc)
+### Create sessions with connectors
 
 ```bash
-# Start only the MCP server over stdio (for one agent / Claude / OpenHands / ...)
-bun run dev -- mcp
-# or
-tsx src/index.ts mcp
-```
-
-### Create a session and run a command (CLI)
-
-```bash
-# Connect to a running daemon
-tsx src/index.ts list
-tsx src/index.ts status <sessionId>     # cwd, toolchains, full-screen app, command graph
-tsx src/index.ts history <sessionId>    # command graph
-tsx src/index.ts write <sessionId> --command "kubectl get pods"
-tsx src/index.ts wait <sessionId> --timeout 30000
-```
-
-### Connect an SSH / WSL / Docker session
-
-```bash
-tsx src/index.ts start --connector ssh --host jump.company.com --user admin --port 22
-tsx src/index.ts start --connector wsl --distro Ubuntu
-tsx src/index.ts start --connector docker --container web
+coterm create --connector ssh --host jump.company.com --user admin --port 22
+coterm create --connector wsl --distro Ubuntu
+coterm create --connector docker --container web
 ```
 
 ---
