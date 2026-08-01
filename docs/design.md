@@ -210,14 +210,20 @@ bun run package:windows  # Build standalone .exe
 
 ### 4.4 Windows Standalone Packaging
 
-**Approach**: `bun build` + `pkg` (from `pkg` npm package)
+**Approach**: `bun build` (CJS, node-pty external) + `pkg` → `coterm.exe`
 
-1. `bun build src/index.ts --outdir=dist --target=node` — bundle all source into a single `.js` file
-2. `pkg dist/index.js --target node18-windows-x64 --output coterm.exe` — wrap with Node.js runtime into a single `.exe`
-3. Include `node-pty` native Windows binaries in the package (handled by `pkg`'s asset bundling)
-4. Output: `coterm.exe` — single executable, no Node.js or bun installation required
+**Verified recipe (M12 complete):**
 
-**Why `pkg` over `bun build --target=bun`**: `pkg` produces a true standalone `.exe` that can be distributed without requiring the user to have bun or Node.js installed. `bun build --target=bun` still requires a bun runtime on the target machine.
+1. `bun build src/index.ts --target=node --format=cjs --external=node-pty --outfile=dist/index.cjs` — bundle all source into a single CJS file; keep `node-pty` external so its native runtime files resolve from `node_modules`.
+2. `pkg dist/index.cjs --target node18-win-x64 --output coterm.exe --compress GZip` — wrap with Node.js runtime into a single `.exe`.
+3. `package.json` `pkg.assets` includes `node_modules/node-pty/build/Release/conpty/**` (ConPTY DLL + OpenConsole.exe) and `node_modules/node-pty/src/**` so node-pty's runtime file lookup works inside the snapshot.
+4. Output: `coterm.exe` — single executable, no Node.js or bun installation required. Verified end-to-end: MCP stdio connect, `terminal_create` (real cmd.exe ConPTY), `terminal_run`, `terminal_read`.
+
+**Why CJS over ESM for `pkg`:** `pkg`'s bytecode compiler rejects ESM output (`import.meta`). The CJS bundle avoids that. Only `node-pty` is kept external; the MCP SDK, zod, pino, and commander are all inlined so `pkg` never has to resolve SDK subpath exports.
+
+**Why `pkg` over `bun build --compile`:** `bun build --compile` embeds the bun runtime. Under bun's JS runtime, `node-pty` ConPTY writes fail on Windows (`ERR_SOCKET_CLOSED`), so a bun-compiled exe would be broken. `pkg` uses the Node runtime where `node-pty` works correctly.
+
+**Bun + node-pty caveat (confirmed):** Under the bun runtime, `node-pty` spawns a ConPTY shell and streams output, but writes to the ConPTY socket fail with `ERR_SOCKET_CLOSED`. Always run the PTY layer under Node (tsx / pkg exe), not bun. The CLI warns about this when launched via bun.
 
 ---
 
@@ -648,8 +654,8 @@ M1-M3 are the foundation. M4-M10 can proceed in parallel once M3 is done. M11 re
 
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
-| `node-pty` native addon compatibility with bun | High | Test bun + node-pty integration in M1; if bun can't load native addons, use bun's Node.js compat mode or spawn a child Node.js process for PTY operations |
-| `pkg` bundling `node-pty` native binaries | High | Test packaging in M12 early; `pkg` has known issues with native modules — may need `pkg` assets configuration or alternative bundler |
+| `node-pty` native addon incompatibility with bun | High | **Confirmed during M12.** Under bun, ConPTY writes fail with `ERR_SOCKET_CLOSED`; node-pty works correctly under Node. PTY operations always run under Node (tsx dev, pkg exe). |
+| `pkg` bundling `node-pty` native binaries | High | **Resolved.** Build CJS with `--external=node-pty`, add `pkg.assets` for `build/Release/conpty/**` and `src/**`. `coterm.exe` verified running ConPTY sessions end-to-end. |
 | ConPTY not available on older Windows | Medium | `node-pty` falls back to `winpty` backend; document minimum Windows 10 Build 18309 |
 | Input scheduling race conditions | High | Mutex on PTY write in Input Scheduler; single-writer guarantee in Command Queue |
 | Prompt detection false positives | Medium | Configurable patterns per shell; default patterns cover common shells |

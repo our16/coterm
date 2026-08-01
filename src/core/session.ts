@@ -124,6 +124,24 @@ export class Session {
     return this.promptDetector.getLastPrompt();
   }
 
+  waitForPrompt(timeoutMs: number = 30000): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let unsub: () => void = () => {};
+      const timer = setTimeout(() => {
+        unsub();
+        reject(new Error(`Timed out after ${timeoutMs}ms waiting for prompt`));
+      }, timeoutMs);
+
+      unsub = eventBus.on('session:promptDetected', (event) => {
+        if (event.type === 'session:promptDetected' && event.sessionId === this.id) {
+          clearTimeout(timer);
+          unsub();
+          resolve(event.prompt);
+        }
+      });
+    });
+  }
+
   getState(): SessionState {
     return this.state;
   }

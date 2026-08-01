@@ -12,23 +12,30 @@ const DEFAULT_PATTERNS: Record<string, RegExp> = {
   sqlite: /sqlite>\s*$/,
 };
 
+export function normalizeShell(shell: string): string {
+  const base = shell.split(/[\\/]/).pop() ?? shell;
+  return base.toLowerCase().replace(/\.exe$/, '');
+}
+
 export class PromptDetector {
+  private shellKey: string;
   private patterns: Map<string, RegExp>;
   private lastPrompt: string | null = null;
 
   constructor(shell: string, customPatterns?: PromptPattern[]) {
+    this.shellKey = normalizeShell(shell);
     this.patterns = new Map();
-    this.patterns.set(shell, DEFAULT_PATTERNS[shell] || /\$\s*$/);
+    this.patterns.set(this.shellKey, DEFAULT_PATTERNS[this.shellKey] || /\$\s*$/);
 
     if (customPatterns) {
       for (const p of customPatterns) {
-        this.patterns.set(p.shell, p.pattern);
+        this.patterns.set(normalizeShell(p.shell), p.pattern);
       }
     }
   }
 
   detect(output: string): string | null {
-    const pattern = this.patterns.get('default') ?? this.patterns.values().next().value;
+    const pattern = this.patterns.get(this.shellKey) ?? this.patterns.get('default') ?? this.patterns.values().next().value;
     if (!pattern) return null;
 
     const match = output.match(pattern);
@@ -44,6 +51,6 @@ export class PromptDetector {
   }
 
   addPattern(shell: string, pattern: RegExp): void {
-    this.patterns.set(shell, pattern);
+    this.patterns.set(normalizeShell(shell), pattern);
   }
 }

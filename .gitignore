@@ -3,3 +3,5 @@ dist
 bun.lockb
 *.exe
 coterm.exe
+
+opencode.json

@@ -1,4 +1,4 @@
-import pty from 'node-pty';
+import * as pty from 'node-pty';
 import type { PtyAdapter } from './pty-adapter.js';
 import { logger } from '../utils/logger.js';
 

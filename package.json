@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "bun build src/main.ts --outdir=dist --target=node",
+    "build": "bun build src/index.ts --outdir=dist --target=node",
     "test": "bun test",
-    "package:windows": "bun run build && pkg dist/index.js --target node18-windows-x64 --output coterm.exe"
+    "typecheck": "tsc --noEmit",
+    "package:windows": "bun run build:cjs && pkg dist/index.cjs --target node18-win-x64 --output coterm.exe --compress GZip",
+    "build:cjs": "bun build src/index.ts --target=node --format=cjs --external=node-pty --outfile=dist/index.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -25,5 +27,11 @@
   },
   "engines": {
     "bun": ">=1.1.0"
+  },
+  "pkg": {
+    "assets": [
+      "node_modules/node-pty/build/Release/conpty/**",
+      "node_modules/node-pty/src/**"
+    ]
   }
 }

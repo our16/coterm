@@ -22,6 +22,13 @@ export class InputScheduler {
   }
 
   release(): void {
+    const next = this.pendingQueue.shift();
+    if (next) {
+      this.locked = true;
+      this.lockedBy = next.requester;
+      next.resolve();
+      return;
+    }
     this.locked = false;
     this.lockedBy = null;
   }

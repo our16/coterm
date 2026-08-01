@@ -2,7 +2,7 @@ import type { SessionEvent } from './types.js';
 
 type EventHandler = (event: SessionEvent) => void;
 
-class EventBus {
+export class EventBus {
   private handlers: Map<string, Set<EventHandler>> = new Map();
 
   on(eventType: SessionEvent['type'], handler: EventHandler): () => void {

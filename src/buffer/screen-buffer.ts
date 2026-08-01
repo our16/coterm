@@ -11,7 +11,10 @@ export class ScreenBuffer {
   }
 
   append(text: string): void {
-    const lines = text.split('\n');
+    let lines = text.split('\n');
+    if (lines[lines.length - 1] === '') {
+      lines = lines.slice(0, -1);
+    }
     for (const line of lines) {
       this.lines.push({
         text: this.stripAnsi(line),
