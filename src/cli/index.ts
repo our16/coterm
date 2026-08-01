@@ -28,6 +28,7 @@ import {
   cmdConfigShow,
   cmdConfigSet,
   cmdInstallPowershell,
+  cmdInstallShell,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -150,6 +151,13 @@ export function buildCli(): Command {
     .description('Install the PowerShell prompt integration (shows "(coterm) " prefix while active)')
     .action(() => {
       cmdInstallPowershell();
+    });
+
+  program
+    .command('install-shell')
+    .description('Install the bash/zsh integration (prompt prefix + shorthand commands)')
+    .action(() => {
+      cmdInstallShell();
     });
 
   program
