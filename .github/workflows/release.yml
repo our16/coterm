@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build coterm.exe + publish release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Run tests
+        run: bun test
+
+      - name: Package Windows executable
+        run: bun run package:windows
+
+      - name: Verify artifact
+        run: |
+          Get-Item coterm.exe | Select-Object Name, Length
+          .\coterm.exe --version
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: coterm.exe
+          generate_release_notes: true
