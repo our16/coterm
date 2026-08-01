@@ -1,0 +1,25 @@
+# gitleaks configuration for CoTerm
+# https://github.com/gitleaks/gitleaks
+title = "CoTerm secret scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures that intentionally contain fake secrets"
+paths = [
+  "tests/**",
+  "scripts/**",
+  "docs/**",
+]
+
+[[rules]]
+id = "coterm-deepseek-api-key"
+description = "DeepSeek OpenAI-compatible API key (sk-...)"
+regex = '''sk-[A-Za-z0-9]{20,}'''
+entropy = 3.0
+
+[[rules]]
+id = "coterm-generic-credential"
+description = "Generic api_key/password assignment"
+regex = '''(api[_-]?key|password)\s*[:=]\s*["']?[^"'\s]{16,}'''
