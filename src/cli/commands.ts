@@ -234,8 +234,9 @@ _CoTerm_EXE='${safeExe}'
 _CoTerm_MARKER="$HOME/.config/coterm/active-$$"
 
 # Shorthand commands (read/history excluded to avoid clashing with shell builtins).
+# Only usable after THIS window is activated (per-window marker exists).
 for _CoTerm_c in list status run info create env stop deactivate off interrupt close record replay snapshot restore; do
-  eval "function $_CoTerm_c() { \\"\\$_CoTerm_EXE\\" $_CoTerm_c \\"\\$@\\"; }"
+  eval "function $_CoTerm_c() { if [ ! -f \\"\\$HOME/.config/coterm/active-\\$\\$\\" ]; then echo 'CoTerm not activated in this window. Run: coterm' >&2; return 1; fi; \\"\\$_CoTerm_EXE\\" $_CoTerm_c \\"\\$@\\"; }"
 done
 
 function coterm() { "$_CoTerm_EXE" "$@"; }
@@ -692,9 +693,13 @@ if (-not $script:CoTermPromptWrapped) {
   }
 }
 
-# Shorthand commands (read/history excluded to avoid clashing with shell builtins).
+# Shorthand commands (read/history excluded): only usable after THIS window
+# is activated (per-window marker exists).
+function global:CoTerm-Active {
+  return (Test-Path "$env:USERPROFILE\\.config\\coterm\\active-$PID")
+}
 foreach ($n in $CoTermShorthandNames) {
-  & ([scriptblock]::Create("function global:$($n) { & '${safeExe}' $($n) @args }"))
+  & ([scriptblock]::Create("function global:$($n) { if (-not (CoTerm-Active)) { Write-Host 'CoTerm not activated in this window. Run: coterm' -ForegroundColor Yellow; return }; & '${safeExe}' $($n) @args }"))
 }
 
 function global:coterm {
