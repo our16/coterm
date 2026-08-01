@@ -33,3 +33,4 @@ err.log
 # OS
 Thumbs.db
 .DS_Store
+.claude
