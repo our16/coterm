@@ -7,10 +7,18 @@ import { startMcpServer, CoTermMcpServer } from '../mcp/server.js';
 import { startHttpMcpServer } from '../mcp/http-server.js';
 import { logger } from '../utils/logger.js';
 import { getTempDir, isWindows } from '../utils/platform.js';
-import { loadConfig, getMcpHost, getMcpPort, getConfigPath, saveConfig, setConfigValue, writeActiveMarker, removeActiveMarker, getPowershellIntegrationPath } from '../config.js';
+import { loadConfig, ensureConfig, getMcpHost, getMcpPort, getConfigPath, saveConfig, setConfigValue, writeActiveMarker, removeActiveMarker, getPowershellIntegrationPath } from '../config.js';
 import { callDaemon, daemonAlive, waitForDaemon, listSessionsFromDaemon, getDaemonUrl, resolveSession } from './daemon-client.js';
 
 const PID_FILE = path.join(getTempDir(), 'coterm.pid');
+
+function effectiveShell(shell?: string): string | undefined {
+  return shell ?? loadConfig().defaultShell;
+}
+
+function effectiveCwd(cwd?: string): string | undefined {
+  return cwd ?? loadConfig().defaultCwd;
+}
 
 function daemonError(err: unknown): void {
   const message = (err as Error).message ?? String(err);
@@ -74,8 +82,8 @@ export async function cmdStart(options: StartOptions): Promise<void> {
   if (options.noMcp) {
     const sessionId = await sessionAPI.createSession({
       name: options.name,
-      shell: options.shell,
-      cwd: options.cwd,
+      shell: effectiveShell(options.shell),
+      cwd: effectiveCwd(options.cwd),
       connector,
     });
     console.log(`Session created: ${sessionId}`);
@@ -91,8 +99,8 @@ export async function cmdStart(options: StartOptions): Promise<void> {
   if (!options.noSession) {
     const sessionId = await sessionAPI.createSession({
       name: options.name ?? 'default',
-      shell: options.shell,
-      cwd: options.cwd,
+      shell: effectiveShell(options.shell),
+      cwd: effectiveCwd(options.cwd),
       connector,
     });
     logger.info({ sessionId }, 'Started default session');
@@ -162,8 +170,8 @@ export async function cmdCreate(options: { name?: string; shell?: string; cwd?: 
       : undefined;
     const { text, isError } = await callDaemon('terminal_create', {
       name: options.name,
-      shell: options.shell,
-      cwd: options.cwd,
+      shell: effectiveShell(options.shell),
+      cwd: effectiveCwd(options.cwd),
       connector,
     });
     if (isError) {
@@ -204,6 +212,8 @@ function ensurePowerShellIntegration(): void {
 }
 
 export async function cmdActivate(options: { shell?: string; cwd?: string; name?: string } = {}): Promise<void> {
+  ensureConfig();
+
   if (await daemonAlive()) {
     console.log('CoTerm environment already active.');
   } else {
@@ -225,8 +235,8 @@ export async function cmdActivate(options: { shell?: string; cwd?: string; name?
     console.log('Creating a default session...');
     const { text, isError } = await callDaemon('terminal_create', {
       name: options.name ?? 'default',
-      shell: options.shell,
-      cwd: options.cwd,
+      shell: effectiveShell(options.shell),
+      cwd: effectiveCwd(options.cwd),
     });
     if (isError) {
       console.error(text);
@@ -517,7 +527,7 @@ export async function cmdWorkspaceStatus(workspaceId: string): Promise<void> {
 
 export function cmdConfigShow(): void {
   const configPath = getConfigPath();
-  const config = loadConfig();
+  const config = ensureConfig();
   console.log(`Config file: ${configPath}`);
   console.log('');
   console.log('Effective MCP endpoint:');

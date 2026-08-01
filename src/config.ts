@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { detectDefaultShell } from './utils/platform.js';
 
 export interface CotermMcpConfig {
   host?: string;
@@ -30,6 +31,22 @@ export function getActiveMarkerPath(): string {
 
 export function getPowershellIntegrationPath(): string {
   return path.join(getConfigDir(), 'powershell.ps1');
+}
+
+export function getDefaultConfig(): CotermConfig {
+  return {
+    mcp: { host: DEFAULT_MCP_HOST, port: DEFAULT_MCP_PORT },
+    defaultShell: detectDefaultShell(),
+  };
+}
+
+export function ensureConfig(): CotermConfig {
+  if (!fs.existsSync(getConfigPath())) {
+    const defaults = getDefaultConfig();
+    saveConfig(defaults);
+    return defaults;
+  }
+  return loadConfig();
 }
 
 export function writeActiveMarker(): void {
