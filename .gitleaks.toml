@@ -6,11 +6,13 @@ title = "CoTerm secret scanning"
 useDefault = true
 
 [allowlist]
-description = "Test fixtures that intentionally contain fake secrets"
+description = "Test fixtures and docs that intentionally contain example/fake secrets"
 paths = [
-  "tests/**",
-  "scripts/**",
-  "docs/**",
+  "tests/",
+  "scripts/",
+  "docs/",
+  "README",
+  "LICENSE",
 ]
 
 [[rules]]
