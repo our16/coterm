@@ -321,6 +321,10 @@ function ensureShellIntegration(): void {
 
 export async function cmdAttach(sessionId?: string): Promise<void> {
   const id = await resolveSession(sessionId);
+  await attachToSession(id);
+}
+
+async function attachToSession(sessionId: string): Promise<void> {
   const stdin = process.stdin;
   if (!stdin.isTTY) {
     console.error('Attach requires an interactive terminal (TTY).');
@@ -328,12 +332,12 @@ export async function cmdAttach(sessionId?: string): Promise<void> {
     return;
   }
 
-  console.log(`Attached to session ${id}. Ctrl+A q to detach; Ctrl+C interrupts the session.`);
+  console.log(`Attached to session ${sessionId}. Ctrl+A q to detach; Ctrl+C interrupts the session.`);
 
   // Baseline: don't replay what's already in the buffer.
   let lastLen = 0;
   try {
-    const r = await callDaemon('terminal_read', { sessionId: id, lines: 500 });
+    const r = await callDaemon('terminal_read', { sessionId, lines: 500 });
     lastLen = r.text.length;
   } catch {
     // ignore
@@ -342,14 +346,14 @@ export async function cmdAttach(sessionId?: string): Promise<void> {
   stdin.setRawMode(true);
   stdin.resume();
 
-  let detached = false;
+  let done = false;
   let prefixA = false;
   const onData = (chunk: Buffer) => {
     const s = chunk.toString('utf8');
     for (const ch of s) {
       if (prefixA) {
         if (ch === 'q') {
-          detached = true;
+          done = true;
           return;
         }
         prefixA = false;
@@ -358,31 +362,54 @@ export async function cmdAttach(sessionId?: string): Promise<void> {
         prefixA = true;
         continue;
       }
-      callDaemon('terminal_write', { sessionId: id, data: ch }).catch(() => {});
+      callDaemon('terminal_write', { sessionId, data: ch }).catch(() => {});
     }
   };
   stdin.on('data', onData);
 
+  let sessionEnded = false;
   const poll = setInterval(async () => {
     try {
-      const r = await callDaemon('terminal_read', { sessionId: id, lines: 500 });
+      // Detect the session shell exiting (e.g. the user typed `exit`).
+      const status = await callDaemon('terminal_status', { sessionId });
+      const st = JSON.parse(status.text) as { info?: { state?: string } };
+      if (st.info && st.info.state === 'closed') {
+        sessionEnded = true;
+        done = true;
+        return;
+      }
+      const r = await callDaemon('terminal_read', { sessionId, lines: 500 });
       const text = r.text;
       if (text.length > lastLen) {
         process.stdout.write(text.slice(lastLen));
         lastLen = text.length;
       }
     } catch {
-      // daemon gone
+      // daemon gone — treat as ended
+      done = true;
     }
   }, 200);
 
-  while (!detached) {
+  while (!done) {
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
   clearInterval(poll);
+  stdin.removeListener('data', onData);
   stdin.setRawMode(false);
-  console.log('\nDetached.');
+  process.stdout.write('\n');
+
+  if (sessionEnded) {
+    try {
+      await callDaemon('terminal_close', { sessionId });
+    } catch {
+      // already gone
+    }
+    removeActiveState(process.ppid ?? process.pid);
+    console.log('Session ended.');
+  } else {
+    console.log('Detached (session still active).');
+  }
 }
 
 export function cmdUsage(): void {
@@ -470,9 +497,11 @@ export async function cmdActivate(options: { shell?: string; cwd?: string; name?
 
   console.log('');
   console.log('CoTerm environment activated.');
-  console.log('  - coterm list / status / run / read  act on this environment');
   console.log(`  - MCP endpoint: ${getDaemonUrl()}`);
-  console.log(`  - deactivate: coterm stop`);
+  console.log('Entering the session terminal (Ctrl+A q to detach, Ctrl+C interrupts)...');
+  console.log('');
+
+  await attachToSession(sessionId);
 }
 
 export async function cmdEnvStatus(): Promise<void> {
