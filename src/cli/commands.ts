@@ -467,11 +467,17 @@ function execViewCommandLine(sessionId: string, cmdLine: string): boolean {
   return true;
 }
 
-/** Whether the buffered input looks like a pending built-in view command. */
+/** Whether the buffered input is (a prefix of) a built-in view command. */
 function isPendingViewCommand(buf: string): boolean {
   const t = buf.trim();
   if (!t) return false;
-  return Object.keys(VIEW_COMMANDS).some((name) => t === name || t.startsWith(name + ' '));
+  for (const name of Object.keys(VIEW_COMMANDS)) {
+    // Full command (`list`) or command + args (`status <id>`).
+    if (t === name || t.startsWith(name + ' ')) return true;
+    // Partial input that could become a command (`l`, `li`, `lis` ...).
+    if (name.startsWith(t)) return true;
+  }
+  return false;
 }
 
 /** Is the current terminal VT/ANSI capable (needed for interactive attach)? */
