@@ -24,6 +24,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "package:windows": "bun run build:cjs && pkg dist/index.cjs --target node18-win-x64 --output coterm.exe --compress GZip",
+    "package:linux": "bun run build:cjs && pkg dist/index.cjs --target node18-linux-x64 --output coterm --compress GZip",
+    "package:macos": "bun run build:cjs && pkg dist/index.cjs --target node18-macos-x64 --output coterm --compress GZip",
     "build:cjs": "bun build src/index.ts --target=node --format=cjs --external=node-pty --outfile=dist/index.cjs"
   },
   "bin": {
@@ -49,6 +51,7 @@
   "pkg": {
     "assets": [
       "node_modules/node-pty/build/Release/conpty/**",
+      "node_modules/node-pty/build/Release/pty.node",
       "node_modules/node-pty/src/**"
     ]
   }

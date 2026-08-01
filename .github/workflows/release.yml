@@ -9,9 +9,37 @@ permissions:
   contents: write
 
 jobs:
-  build-windows:
-    name: Build coterm.exe + publish release
-    runs-on: windows-latest
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: package:windows
+            asset: coterm-windows-x64.exe
+            output: coterm.exe
+            shell: pwsh
+            verify: |
+              Get-Item coterm.exe | Select-Object Name, Length
+              .\coterm.exe --version
+          - os: ubuntu-latest
+            script: package:linux
+            asset: coterm-linux-x64
+            output: coterm
+            shell: bash
+            verify: |
+              ls -la coterm
+              ./coterm --version
+          - os: macos-latest
+            script: package:macos
+            asset: coterm-macos-x64
+            output: coterm
+            shell: bash
+            verify: |
+              ls -la coterm
+              ./coterm --version
     steps:
       - uses: actions/checkout@v4
 
@@ -28,13 +56,30 @@ jobs:
       - name: Run tests
         run: bun test
 
-      - name: Package Windows executable
-        run: bun run package:windows
+      - name: Package ${{ matrix.os }}
+        run: bun run ${{ matrix.script }}
+
+      - name: Rename artifact
+        run: mv ${{ matrix.output }} ${{ matrix.asset }}
+        shell: ${{ matrix.shell }}
 
       - name: Verify artifact
-        run: |
-          Get-Item coterm.exe | Select-Object Name, Length
-          .\coterm.exe --version
+        run: ${{ matrix.verify }}
+        shell: ${{ matrix.shell }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Extract changelog section for this version
         id: changelog
@@ -52,9 +97,15 @@ jobs:
           echo "--- extracted body ---"
           head -c 400 release_body.md
 
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-assets
+          merge-multiple: true
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: coterm.exe
+          files: dist-assets/*
           body_path: release_body.md
           generate_release_notes: true
