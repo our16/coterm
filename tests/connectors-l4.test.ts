@@ -4,6 +4,11 @@ import { SshConnector } from '../src/connectors/ssh-connector.js';
 import { WslConnector } from '../src/connectors/wsl-connector.js';
 import { DockerConnector } from '../src/connectors/docker-connector.js';
 import { ConnectorManager } from '../src/connectors/connector-manager.js';
+import { SessionAPI } from '../src/api/session-api.js';
+import { SessionManager } from '../src/core/session-manager.js';
+import { WorkspaceManager } from '../src/workspace/workspace-manager.js';
+import { PosixPtyAdapter } from '../src/pty/posix-pty.js';
+import { WindowsPtyAdapter } from '../src/pty/windows-pty.js';
 import { SessionRecorder } from '../src/ai/session-recorder.js';
 import { Session } from '../src/core/session.js';
 import { MockPty } from './helpers/mock-pty.js';
@@ -166,6 +171,171 @@ describe('Session recording integration', () => {
 
     session.stopRecording();
     expect(session.isRecording()).toBe(false);
+  });
+});
+
+describe('Session presence', () => {
+  test('tracks presence transitions', async () => {
+    const session = new Session({
+      id: 'pres1',
+      name: 'pres1',
+      shell: 'powershell.exe',
+      shellArgs: [],
+      cwd: 'C:\\proj',
+      cols: 120,
+      rows: 30,
+      env: {},
+    });
+    const pty = new MockPty();
+    await session.start(pty);
+
+    expect(session.getPresence()).toBe('idle');
+    await session.write('git status\r', 'human');
+    expect(session.getPresence()).toBe('human-typing');
+
+    await session.write('pytest\r', 'ai');
+    expect(session.getPresence()).toBe('ai-running');
+
+    pty.emitOutput('2 passed\r\nPS C:\\proj>');
+    expect(session.getPresence()).toBe('idle');
+
+    session.attachAgent('deploy-agent');
+    expect(session.getPresence()).toBe('ai-thinking');
+
+    session.interrupt();
+    expect(session.getPresence()).toBe('idle');
+  });
+
+  test('emits session:presence events', async () => {
+    const session = new Session({
+      id: 'pres2',
+      name: 'pres2',
+      shell: 'powershell.exe',
+      shellArgs: [],
+      cwd: 'C:\\proj',
+      cols: 120,
+      rows: 30,
+      env: {},
+    });
+    const pty = new MockPty();
+    await session.start(pty);
+
+    const states: string[] = [];
+    const { eventBus } = await import('../src/core/event-bus.js');
+    const unsub = eventBus.on('session:presence', (e) => {
+      if (e.type === 'session:presence' && e.sessionId === session.id) states.push(e.presence);
+    });
+    await session.write('ls\r', 'ai');
+    expect(states).toContain('ai-running');
+    unsub();
+  });
+
+  test('presence appears in session info', async () => {
+    const session = new Session({
+      id: 'pres3',
+      name: 'pres3',
+      shell: 'powershell.exe',
+      shellArgs: [],
+      cwd: 'C:\\proj',
+      cols: 120,
+      rows: 30,
+      env: {},
+    });
+    const pty = new MockPty();
+    await session.start(pty);
+    expect(session.getInfo().presence).toBe('idle');
+  });
+});
+
+describe('Workspace', () => {
+  test('create, add sessions, and list', () => {
+    const wm = new WorkspaceManager();
+    const wsId = wm.createWorkspace('deploy').id;
+    wm.addToWorkspace(wsId, 's1');
+    wm.addToWorkspace(wsId, 's2');
+    wm.addToWorkspace(wsId, 's1');
+
+    const info = wm.getWorkspace(wsId)?.getInfo();
+    expect(info?.sessionIds).toEqual(['s1', 's2']);
+    expect(wm.listWorkspaces()).toHaveLength(1);
+  });
+
+  test('remove session and remove workspace', () => {
+    const wm = new WorkspaceManager();
+    const wsId = wm.createWorkspace('deploy').id;
+    wm.addToWorkspace(wsId, 's1');
+    wm.addToWorkspace(wsId, 's2');
+    wm.removeFromWorkspace(wsId, 's1');
+    expect(wm.getWorkspace(wsId)?.getSessionIds()).toEqual(['s2']);
+    wm.removeWorkspace(wsId);
+    expect(wm.listWorkspaces()).toHaveLength(0);
+  });
+
+  test('unknown workspace throws', () => {
+    const wm = new WorkspaceManager();
+    expect(() => wm.addToWorkspace('nope', 's1')).toThrow('not found');
+  });
+});
+
+describe('Workspace via SessionAPI', () => {
+  function makeApi() {
+    return new SessionAPI({
+      manager: new SessionManager(),
+      workspaces: new WorkspaceManager(),
+      adapterFactory: () => new MockPty(),
+    });
+  }
+
+  test('runInWorkspace executes in all members', async () => {
+    const api = makeApi();
+    const id1 = await api.createSession({ id: 'w1' });
+    const id2 = await api.createSession({ id: 'w2' });
+    const wsId = api.createWorkspace('deploy');
+    api.addToWorkspace(wsId, id1);
+    api.addToWorkspace(wsId, id2);
+
+    const results = await api.runInWorkspace(wsId, 'echo hi', 'human');
+    expect(results).toEqual({ w1: 'ok', w2: 'ok' });
+
+    const s1 = api.getSessionManager().getSession('w1');
+    const pty1 = s1?.pty as MockPty;
+    const s2 = api.getSessionManager().getSession('w2');
+    const pty2 = s2?.pty as MockPty;
+    expect(pty1.written).toContain('echo hi\r');
+    expect(pty2.written).toContain('echo hi\r');
+  });
+
+  test('getWorkspaceStatus aggregates member state', async () => {
+    const api = makeApi();
+    const id1 = await api.createSession({ id: 'w3' });
+    const id2 = await api.createSession({ id: 'w4' });
+    const wsId = api.createWorkspace('deploy');
+    api.addToWorkspace(wsId, id1);
+    api.addToWorkspace(wsId, id2);
+
+    const status = api.getWorkspaceStatus(wsId);
+    expect(status).toHaveLength(2);
+    expect(status.every((s) => s.state === 'running')).toBe(true);
+  });
+});
+
+describe('PTY adapters', () => {
+  test('PosixPtyAdapter and WindowsPtyAdapter share the NodePtyAdapter contract', () => {
+    const posix = new PosixPtyAdapter();
+    const windows = new WindowsPtyAdapter();
+    for (const adapter of [posix, windows]) {
+      expect(typeof adapter.spawn).toBe('function');
+      expect(typeof adapter.write).toBe('function');
+      expect(typeof adapter.resize).toBe('function');
+      expect(typeof adapter.onOutput).toBe('function');
+      expect(typeof adapter.onExit).toBe('function');
+      expect(typeof adapter.destroy).toBe('function');
+    }
+  });
+
+  test('adapter types reflect platform naming', () => {
+    expect(new PosixPtyAdapter()).toBeInstanceOf(PosixPtyAdapter);
+    expect(new WindowsPtyAdapter()).toBeInstanceOf(WindowsPtyAdapter);
   });
 });
 

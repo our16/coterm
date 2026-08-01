@@ -1,4 +1,4 @@
-import type { SessionConfig, SessionState, SessionEvent, ScreenLine, PtyAdapter, Requester, CommandEntry, SessionIntelligenceState } from './types.js';
+import type { PresenceState, SessionConfig, SessionState, SessionEvent, ScreenLine, PtyAdapter, Requester, CommandEntry, SessionIntelligenceState } from './types.js';
 import { eventBus } from './event-bus.js';
 import { ScreenBuffer } from '../buffer/screen-buffer.js';
 import { PromptDetector } from '../buffer/prompt-detector.js';
@@ -23,6 +23,7 @@ export class Session {
   public intelligence: SessionIntelligence | null = null;
   public recorder: SessionRecorder | null = null;
   public participants: string[] = [];
+  public presence: PresenceState = 'idle';
 
   constructor(config: SessionConfig) {
     this.id = config.id;
@@ -73,6 +74,17 @@ export class Session {
     this.recorder?.record(event);
   }
 
+  setPresence(presence: PresenceState): void {
+    if (this.presence === presence) return;
+    this.presence = presence;
+    this.record({ type: 'session:presence', sessionId: this.id, presence });
+    eventBus.emit({ type: 'session:presence', sessionId: this.id, presence });
+  }
+
+  getPresence(): PresenceState {
+    return this.presence;
+  }
+
   private handleOutput(data: string): void {
     if (!this.screenBuffer) return;
 
@@ -87,6 +99,7 @@ export class Session {
         this.intelligence?.onPromptDetected();
         this.record({ type: 'session:promptDetected', sessionId: this.id, prompt });
         eventBus.emit({ type: 'session:promptDetected', sessionId: this.id, prompt });
+        this.setPresence(this.participants.length > 0 ? 'ai-thinking' : 'idle');
       }
     }
   }
@@ -107,6 +120,7 @@ export class Session {
       throw new Error(`Cannot write to session in state ${this.state}`);
     }
     this.recordEnterCommand(data, requester ?? this.owner);
+    this.setPresence(requester === 'human' ? 'human-typing' : 'ai-running');
     await this.pty.write(data);
   }
 
@@ -126,6 +140,7 @@ export class Session {
   }
 
   interrupt(): void {
+    this.setPresence('idle');
     if (this.pty) {
       this.pty.write('\x03');
     }
@@ -135,11 +150,17 @@ export class Session {
     if (!this.participants.includes(agentId)) {
       this.participants.push(agentId);
     }
+    if (this.presence === 'idle') {
+      this.setPresence('ai-thinking');
+    }
     this.record({ type: 'session:aiAttached', sessionId: this.id, agent: agentId });
   }
 
   detachAgent(agentId: string): void {
     this.participants = this.participants.filter((a) => a !== agentId);
+    if (this.participants.length === 0 && this.presence === 'ai-thinking') {
+      this.setPresence('idle');
+    }
     this.record({ type: 'session:aiDetached', sessionId: this.id, agent: agentId });
   }
 
@@ -234,7 +255,7 @@ export class Session {
     return this.intelligence.getState(this.state);
   }
 
-  getInfo(): { id: string; name: string; state: SessionState; shell: string; cwd: string; createdAt: number; owner: Requester } {
+  getInfo(): { id: string; name: string; state: SessionState; shell: string; cwd: string; createdAt: number; owner: Requester; presence: PresenceState } {
     return {
       id: this.id,
       name: this.name,
@@ -243,6 +264,7 @@ export class Session {
       cwd: this.config.cwd,
       createdAt: this.createdAt,
       owner: this.owner,
+      presence: this.presence,
     };
   }
 }

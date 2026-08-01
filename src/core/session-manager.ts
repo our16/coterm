@@ -45,6 +45,9 @@ export class SessionManager {
     if (agentId) {
       session.attachAgent(agentId);
     } else {
+      if (session.getPresence() === 'idle') {
+        session.setPresence('ai-thinking');
+      }
       eventBus.emit({ type: 'session:aiAttached', sessionId });
     }
   }

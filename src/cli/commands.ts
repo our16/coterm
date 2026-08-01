@@ -225,6 +225,49 @@ export async function cmdRestore(snapshotFile: string): Promise<void> {
   }
 }
 
+export function cmdWorkspaceCreate(name: string): void {
+  try {
+    const workspaceId = sessionAPI.createWorkspace(name);
+    console.log(`Workspace created: ${workspaceId}`);
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
+export function cmdWorkspaceList(): void {
+  console.log(JSON.stringify(sessionAPI.listWorkspaces(), null, 2));
+}
+
+export function cmdWorkspaceAdd(workspaceId: string, sessionId: string): void {
+  try {
+    sessionAPI.addToWorkspace(workspaceId, sessionId);
+    console.log(`Added session ${sessionId} to workspace ${workspaceId}`);
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
+export async function cmdWorkspaceRun(workspaceId: string, command: string): Promise<void> {
+  try {
+    const results = await sessionAPI.runInWorkspace(workspaceId, command, 'human');
+    console.log(JSON.stringify(results, null, 2));
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
+export function cmdWorkspaceStatus(workspaceId: string): void {
+  try {
+    console.log(JSON.stringify(sessionAPI.getWorkspaceStatus(workspaceId), null, 2));
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
 export function cmdInterrupt(sessionId: string): void {
   try {
     sessionAPI.interrupt(sessionId, 'human');

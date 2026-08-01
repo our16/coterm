@@ -2,10 +2,12 @@ import type { CommandRecord, ConnectorConfig, PtyAdapter, RecordedEvent, Request
 import { SessionManager } from '../core/session-manager.js';
 import { eventBus } from '../core/event-bus.js';
 import { uuid } from '../utils/uuid.js';
-import { detectDefaultShell, isWindows } from '../utils/platform.js';
-import { WindowsPtyAdapter } from '../pty/windows-pty.js';
+import { detectDefaultShell } from '../utils/platform.js';
 import { ConnectorManager, connectorManager } from '../connectors/connector-manager.js';
 import { createSnapshot, applySnapshot } from '../ai/snapshot.js';
+import { createPtyAdapter } from '../pty/factory.js';
+import { WorkspaceManager, workspaceManager } from '../workspace/workspace-manager.js';
+import type { WorkspaceInfo } from '../workspace/workspace.js';
 
 export interface SessionApiOptions {
   defaultShell?: string;
@@ -16,6 +18,7 @@ export interface SessionApiOptions {
   adapterFactory?: () => PtyAdapter;
   manager?: SessionManager;
   connectors?: ConnectorManager;
+  workspaces?: WorkspaceManager;
 }
 
 export interface SessionCreateOptions extends Partial<SessionConfig> {
@@ -26,6 +29,7 @@ export class SessionAPI {
   private options: Required<Pick<SessionApiOptions, 'defaultShell' | 'defaultShellArgs' | 'defaultCwd' | 'cols' | 'rows'>> & SessionApiOptions;
   private manager: SessionManager;
   private connectors: ConnectorManager;
+  private workspaces: WorkspaceManager;
 
   constructor(options: SessionApiOptions = {}) {
     this.options = {
@@ -38,6 +42,7 @@ export class SessionAPI {
     };
     this.manager = options.manager ?? new SessionManager();
     this.connectors = options.connectors ?? connectorManager;
+    this.workspaces = options.workspaces ?? workspaceManager;
   }
 
   getSessionManager(): SessionManager {
@@ -52,7 +57,7 @@ export class SessionAPI {
     if (this.options.adapterFactory) {
       return this.options.adapterFactory();
     }
-    return new WindowsPtyAdapter();
+    return createPtyAdapter();
   }
 
   private requireSession(sessionId: string) {
@@ -165,6 +170,10 @@ export class SessionAPI {
     return this.requireSession(sessionId).getParticipants();
   }
 
+  getPresence(sessionId: string): string {
+    return this.requireSession(sessionId).getPresence();
+  }
+
   startRecording(sessionId: string): void {
     this.requireSession(sessionId).startRecording();
   }
@@ -204,6 +213,64 @@ export class SessionAPI {
     await session.start(this.createAdapter());
     applySnapshot(session, snapshot);
     return session.id;
+  }
+
+  createWorkspace(name: string): string {
+    return this.workspaces.createWorkspace(name).id;
+  }
+
+  listWorkspaces(): WorkspaceInfo[] {
+    return this.workspaces.listWorkspaces();
+  }
+
+  removeWorkspace(workspaceId: string): void {
+    this.workspaces.removeWorkspace(workspaceId);
+  }
+
+  addToWorkspace(workspaceId: string, sessionId: string): void {
+    this.requireSession(sessionId);
+    this.workspaces.addToWorkspace(workspaceId, sessionId);
+  }
+
+  removeFromWorkspace(workspaceId: string, sessionId: string): void {
+    this.workspaces.removeFromWorkspace(workspaceId, sessionId);
+  }
+
+  getWorkspaceSessions(workspaceId: string): string[] {
+    const ws = this.workspaces.getWorkspace(workspaceId);
+    if (!ws) {
+      throw new Error(`Workspace ${workspaceId} not found`);
+    }
+    return ws.getSessionIds();
+  }
+
+  async runInWorkspace(workspaceId: string, command: string, requester: Requester = 'ai'): Promise<Record<string, string>> {
+    const sessionIds = this.getWorkspaceSessions(workspaceId);
+    const results: Record<string, string> = {};
+    await Promise.all(
+      sessionIds.map(async (sessionId) => {
+        try {
+          await this.runCommand(sessionId, command, requester);
+          results[sessionId] = 'ok';
+        } catch (err) {
+          results[sessionId] = (err as Error).message;
+        }
+      }),
+    );
+    return results;
+  }
+
+  getWorkspaceStatus(workspaceId: string): Array<{ sessionId: string; state: string; presence: string; cwd: string }> {
+    return this.getWorkspaceSessions(workspaceId).map((sessionId) => {
+      const info = this.getSession(sessionId);
+      const intelligence = this.getIntelligence(sessionId);
+      return {
+        sessionId,
+        state: info.state,
+        presence: this.getPresence(sessionId),
+        cwd: intelligence.cwd,
+      };
+    });
   }
 
   getCurrentPrompt(sessionId: string): string | null {

@@ -13,7 +13,7 @@ class DelayedPromptPty extends MockPty {
   }
 }
 
-const TOOL_COUNT = 17;
+const TOOL_COUNT = 23;
 
 async function setup(ptyFactory: () => MockPty = () => new MockPty()) {
   const api = new SessionAPI({
@@ -57,6 +57,12 @@ describe('CoTermMcpServer tools', () => {
         'terminal_status',
         'terminal_wait_prompt',
         'terminal_write',
+        'workspace_add',
+        'workspace_create',
+        'workspace_list',
+        'workspace_remove',
+        'workspace_run',
+        'workspace_status',
       ].sort(),
     );
   });
@@ -257,6 +263,30 @@ describe('CoTermMcpServer tools', () => {
     const restored = api.getIntelligence(newId);
     expect(restored.lastCommand?.command).toBe('git status');
     expect(restored.cwd).toBe('C:\\proj');
+  });
+
+  test('workspace tools group and run across sessions', async () => {
+    const { api, client } = await setup();
+    const id1 = await api.createSession({ id: 'ws-mcp-1' });
+    const id2 = await api.createSession({ id: 'ws-mcp-2' });
+
+    const created = await client.callTool({ name: 'workspace_create', arguments: { name: 'deploy' } });
+    const { workspaceId } = JSON.parse(textOf(created));
+
+    await client.callTool({ name: 'workspace_add', arguments: { workspaceId, sessionId: id1 } });
+    await client.callTool({ name: 'workspace_add', arguments: { workspaceId, sessionId: id2 } });
+
+    const listed = await client.callTool({ name: 'workspace_list', arguments: {} });
+    const workspaces = JSON.parse(textOf(listed));
+    expect(workspaces).toHaveLength(1);
+    expect(workspaces[0].sessionIds).toEqual([id1, id2]);
+
+    const run = await client.callTool({ name: 'workspace_run', arguments: { workspaceId, command: 'echo hi' } });
+    expect(JSON.parse(textOf(run))).toEqual({ [id1]: 'ok', [id2]: 'ok' });
+
+    const status = await client.callTool({ name: 'workspace_status', arguments: { workspaceId } });
+    const members = JSON.parse(textOf(status));
+    expect(members).toHaveLength(2);
   });
 
   test('missing session returns isError', async () => {

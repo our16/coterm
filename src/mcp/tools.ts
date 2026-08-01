@@ -235,7 +235,10 @@ export function registerTerminalTools(server: McpServer, api: SessionAPI): void 
     async ({ sessionId }) => {
       try {
         const intelligence = api.getIntelligence(sessionId);
-        return toolText(JSON.stringify(intelligence, null, 2));
+        const info = api.getSession(sessionId);
+        const presence = api.getPresence(sessionId);
+        const participants = api.getParticipants(sessionId);
+        return toolText(JSON.stringify({ ...intelligence, presence, participants, info }, null, 2));
       } catch (err) {
         return toolError((err as Error).message);
       }
@@ -344,6 +347,114 @@ export function registerTerminalTools(server: McpServer, api: SessionAPI): void 
         return toolText(JSON.stringify({ sessionId }));
       } catch (err) {
         return toolError(`Failed to restore snapshot: ${(err as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    'workspace_create',
+    {
+      title: 'Create Workspace',
+      description: 'Create a named workspace that groups multiple sessions (e.g. a deploy workspace with Linux/Redis/MySQL/K8s).',
+      inputSchema: {
+        name: z.string().describe('Workspace name'),
+      },
+    },
+    async ({ name }) => {
+      try {
+        const workspaceId = api.createWorkspace(name);
+        return toolText(JSON.stringify({ workspaceId }));
+      } catch (err) {
+        return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    'workspace_add',
+    {
+      title: 'Add Session to Workspace',
+      description: 'Add an existing session to a workspace.',
+      inputSchema: {
+        workspaceId: z.string().describe('Workspace ID'),
+        sessionId: z.string().describe('Session ID to add'),
+      },
+    },
+    async ({ workspaceId, sessionId }) => {
+      try {
+        api.addToWorkspace(workspaceId, sessionId);
+        return toolText(`Added session ${sessionId} to workspace ${workspaceId}`);
+      } catch (err) {
+        return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    'workspace_remove',
+    {
+      title: 'Remove Session from Workspace',
+      description: 'Remove a session from a workspace.',
+      inputSchema: {
+        workspaceId: z.string().describe('Workspace ID'),
+        sessionId: z.string().describe('Session ID to remove'),
+      },
+    },
+    async ({ workspaceId, sessionId }) => {
+      try {
+        api.removeFromWorkspace(workspaceId, sessionId);
+        return toolText(`Removed session ${sessionId} from workspace ${workspaceId}`);
+      } catch (err) {
+        return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    'workspace_list',
+    {
+      title: 'List Workspaces',
+      description: 'List all workspaces with their member session IDs.',
+    },
+    async () => {
+      return toolText(JSON.stringify(api.listWorkspaces(), null, 2));
+    },
+  );
+
+  server.registerTool(
+    'workspace_run',
+    {
+      title: 'Run Command in Workspace',
+      description: 'Run a command in every session of a workspace (in parallel).',
+      inputSchema: {
+        workspaceId: z.string().describe('Workspace ID'),
+        command: z.string().describe('Command to run in each session'),
+      },
+    },
+    async ({ workspaceId, command }) => {
+      try {
+        const results = await api.runInWorkspace(workspaceId, command, 'ai');
+        return toolText(JSON.stringify(results, null, 2));
+      } catch (err) {
+        return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    'workspace_status',
+    {
+      title: 'Workspace Status',
+      description: 'Show state/presence/cwd of every session in a workspace.',
+      inputSchema: {
+        workspaceId: z.string().describe('Workspace ID'),
+      },
+    },
+    async ({ workspaceId }) => {
+      try {
+        return toolText(JSON.stringify(api.getWorkspaceStatus(workspaceId), null, 2));
+      } catch (err) {
+        return toolError((err as Error).message);
       }
     },
   );

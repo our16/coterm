@@ -3,6 +3,6 @@ import { NodePtyAdapter } from './node-pty-adapter.js';
 
 export { NodePtyAdapter } from './node-pty-adapter.js';
 
-export class WindowsPtyAdapter extends NodePtyAdapter implements PtyAdapter {}
+export class PosixPtyAdapter extends NodePtyAdapter implements PtyAdapter {}
 
-export default WindowsPtyAdapter;
+export default PosixPtyAdapter;

@@ -1,5 +1,7 @@
 export type SessionState = 'created' | 'starting' | 'running' | 'active' | 'paused' | 'closed' | 'error';
 
+export type PresenceState = 'idle' | 'human-typing' | 'ai-thinking' | 'ai-running' | 'waiting-prompt';
+
 export type Requester = 'human' | 'ai';
 
 export interface SessionConfig {
@@ -32,6 +34,7 @@ export type SessionEvent =
   | { type: 'session:aiAttached'; sessionId: string; agent?: string }
   | { type: 'session:aiDetached'; sessionId: string; agent?: string }
   | { type: 'session:interrupted'; sessionId: string; by: Requester }
+  | { type: 'session:presence'; sessionId: string; presence: PresenceState }
   | { type: 'session:recorded'; sessionId: string; recording: boolean }
   | { type: 'inputArbiter:locked'; sessionId: string; by: Requester }
   | { type: 'inputArbiter:unlocked'; sessionId: string };

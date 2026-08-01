@@ -17,6 +17,11 @@ import {
   cmdReplay,
   cmdSnapshot,
   cmdRestore,
+  cmdWorkspaceCreate,
+  cmdWorkspaceList,
+  cmdWorkspaceAdd,
+  cmdWorkspaceRun,
+  cmdWorkspaceStatus,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -160,6 +165,47 @@ export function buildCli(): Command {
     .description('Restore a session from a snapshot file')
     .action(async (file: string) => {
       await cmdRestore(file);
+    });
+
+  program
+    .command('workspace')
+    .description('Manage session workspaces')
+    .argument('<action>', 'create|list|add|run|status')
+    .argument('[args...]', 'arguments: create <name>; add <workspaceId> <sessionId>; run <workspaceId> --command <cmd>; status <workspaceId>')
+    .option('--command <cmd>', 'Command to run (for the run action)')
+    .action(async (action: string, args: string[], opts: { command?: string }) => {
+      switch (action) {
+        case 'create': {
+          const name = args[0];
+          if (!name) return console.error('Usage: coterm workspace create <name>');
+          cmdWorkspaceCreate(name);
+          break;
+        }
+        case 'list':
+          cmdWorkspaceList();
+          break;
+        case 'add': {
+          const [ws, sid] = args;
+          if (!ws || !sid) return console.error('Usage: coterm workspace add <workspaceId> <sessionId>');
+          cmdWorkspaceAdd(ws, sid);
+          break;
+        }
+        case 'run': {
+          const ws = args[0];
+          if (!ws || !opts.command) return console.error('Usage: coterm workspace run <workspaceId> --command <cmd>');
+          await cmdWorkspaceRun(ws, opts.command);
+          break;
+        }
+        case 'status': {
+          const ws = args[0];
+          if (!ws) return console.error('Usage: coterm workspace status <workspaceId>');
+          cmdWorkspaceStatus(ws);
+          break;
+        }
+        default:
+          console.error(`Unknown workspace action: ${action}`);
+          process.exitCode = 1;
+      }
     });
 
   program
