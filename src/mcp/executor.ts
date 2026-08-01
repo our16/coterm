@@ -72,9 +72,20 @@ export async function executeTool(api: SessionAPI, name: string, args: Record<st
     case 'terminal_run': {
       const { sessionId, command, timeout } = args as { sessionId: string; command: string; timeout?: number };
       try {
+        const limit = timeout ?? 30000;
         await api.runCommand(sessionId, command, 'ai');
-        const prompt = await api.waitForPrompt(sessionId, timeout ?? 30000);
-        return ok(`Command finished. Prompt detected: ${JSON.stringify(prompt)}`);
+        const needle = command.trim();
+        const deadline = Date.now() + limit;
+        let output = '';
+        while (Date.now() < deadline) {
+          const remaining = deadline - Date.now();
+          await api.waitForPrompt(sessionId, Math.max(1000, Math.min(remaining, 10000)));
+          output = api.readText(sessionId, 100).trim();
+          // Only treat it as complete once the shell has echoed our command
+          // (otherwise the first prompt of a fresh session is misread).
+          if (output.includes(needle)) break;
+        }
+        return ok(`Command finished.\n\n${output || '(no output)'}`);
       } catch (e) {
         return err(`Command did not complete: ${(e as Error).message}`);
       }
