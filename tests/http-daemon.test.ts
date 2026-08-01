@@ -139,13 +139,26 @@ describe('CoTerm HTTP daemon (single-process shared sessions)', () => {
     const created = await a.client.callTool({ name: 'terminal_create', arguments: { name: 'state-test' } });
     const { sessionId } = JSON.parse(created.content[0].text);
 
-    // Agent A runs a command; emit output asynchronously so the prompt can arrive
+    // Agent A runs a command; emit output in a loop until the prompt is caught
+    // (robust on slow CI runners where the fixed delay could fire before the
+    // waitForPrompt subscription).
     const session = api.getSessionManager().getSession(sessionId);
     const pty = session?.pty as MockPty;
-    const runPromise = a.client.callTool({ name: 'terminal_run', arguments: { sessionId, command: 'echo shared-state', timeout: 5000 } });
-    await new Promise((r) => setTimeout(r, 100));
-    pty.emitOutput('shared-state\r\n');
-    pty.emitOutput('PS C:\\proj>');
+    const runPromise = a.client.callTool({ name: 'terminal_run', arguments: { sessionId, command: 'echo shared-state', timeout: 8000 } });
+    let done = false;
+    runPromise
+      .then(() => {
+        done = true;
+      })
+      .catch(() => {
+        done = true;
+      });
+    const deadline = Date.now() + 6000;
+    while (!done && Date.now() < deadline) {
+      pty.emitOutput('shared-state\r\n');
+      pty.emitOutput('PS C:\\proj>');
+      await new Promise((r) => setTimeout(r, 30));
+    }
     await runPromise;
 
     // Agent B reads the output from the same session
