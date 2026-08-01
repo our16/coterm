@@ -20,6 +20,31 @@ export function getConfigPath(): string {
   return path.join(os.homedir(), '.config', 'coterm.json');
 }
 
+export function getActiveMarkerPath(): string {
+  return path.join(os.homedir(), '.config', 'coterm-active');
+}
+
+export function writeActiveMarker(): void {
+  try {
+    fs.mkdirSync(path.dirname(getActiveMarkerPath()), { recursive: true });
+    fs.writeFileSync(getActiveMarkerPath(), String(process.pid));
+  } catch {
+    // ignore
+  }
+}
+
+export function removeActiveMarker(): void {
+  try {
+    fs.rmSync(getActiveMarkerPath(), { force: true });
+  } catch {
+    // ignore
+  }
+}
+
+export function isActiveMarker(): boolean {
+  return fs.existsSync(getActiveMarkerPath());
+}
+
 export function loadConfig(): CotermConfig {
   try {
     const raw = fs.readFileSync(getConfigPath(), 'utf8');
