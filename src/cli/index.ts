@@ -51,11 +51,13 @@ export function buildCli(): Command {
     .option('--shell <shell>', 'Shell for the default session')
     .option('--cwd <dir>', 'Working directory for the default session')
     .option('--name <name>', 'Name for the default session')
+    .option('--no-view', 'Do not auto-enter the shared terminal view')
     .action(async (opts: Record<string, unknown>) => {
       await cmdActivate({
         shell: opts.shell as string | undefined,
         cwd: opts.cwd as string | undefined,
         name: opts.name as string | undefined,
+        view: opts.view as boolean | undefined,
       });
     });
 

@@ -518,7 +518,7 @@ export function cmdUsage(): void {
   console.log('(list, run, status, ...) become available in this window.');
 }
 
-export async function cmdActivate(options: { shell?: string; cwd?: string; name?: string } = {}): Promise<void> {
+export async function cmdActivate(options: { shell?: string; cwd?: string; name?: string; view?: boolean } = {}): Promise<void> {
   ensureConfig();
 
   if (await daemonAlive()) {
@@ -590,6 +590,20 @@ export async function cmdActivate(options: { shell?: string; cwd?: string; name?
   console.log(`  - run <command>    execute a command in this session`);
   console.log(`  - MCP endpoint: ${getDaemonUrl()}`);
   console.log(`  - deactivate: coterm stop`);
+
+  // Automatically drop into the shared terminal view so this window IS the
+  // session's terminal (real rendering: arrows/history/full-screen apps).
+  if (options.view !== false) {
+    if (!process.stdin.isTTY) {
+      console.log('(non-interactive: not entering the terminal view)');
+    } else {
+      console.log('');
+      console.log('Entering shared terminal view (Ctrl+A q to detach)...');
+      await attachToSession(sessionId);
+      // After detach, show a hint for how to return.
+      console.log('  - re-enter: coterm run   (or run <command> for one-shot)');
+    }
+  }
 }
 
 export async function cmdEnvStatus(): Promise<void> {
