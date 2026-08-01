@@ -1,4 +1,4 @@
-import { McpServer as McpServerSdk } from '@modelcontextprotocol/sdk/server/mcp.js';
+﻿import { McpServer as McpServerSdk } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerTerminalTools } from './tools.js';
 import { sessionAPI, type SessionAPI } from '../api/session-api.js';
@@ -8,7 +8,7 @@ export function buildMcpSdk(api: SessionAPI): McpServerSdk {
   const server = new McpServerSdk(
     {
       name: 'coterm',
-      version: '0.2.0',
+      version: '0.3.0',
     },
     {
       capabilities: {

@@ -2,6 +2,33 @@
 
 All notable changes to CoTerm are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-08-01
+
+### conda-activate style environment
+
+- `coterm` (bare) auto-starts the daemon (idempotent) and activates the shared environment.
+- CLI commands now act on the running daemon via a plain JSON `/cli` endpoint (`node:http`, no undici) —
+  `coterm list/status/run/read/...` manage the shared sessions, not an empty in-process registry.
+- Session id is optional on commands — defaults to the first running session.
+- `coterm create` to add local / ssh / wsl / docker sessions.
+
+### PowerShell integration (auto-installed)
+
+- On first activation, CoTerm installs `~/.config/coterm/powershell.ps1` automatically.
+- The prompt shows `(coterm) ` (preserved alongside conda's `(base)`) while active, driven by a
+  state-file marker (`~/.config/coterm/active`).
+- Shorthand commands (`list`, `status`, `run`, `read`, `stop`, ...) work without the `coterm` prefix.
+- `coterm install-powershell` for manual setup; prompt clears on `coterm stop`.
+
+### Config & distribution
+
+- `~/.config/coterm/config.json` auto-generated with defaults (`mcp_server_port`, `defaultShell`).
+- `mcp_server_port` flat key (host is always local); `coterm config` / `config-set`.
+- Environment-aware default shell detection (pwsh > powershell > cmd; `$SHELL`/bash on POSIX).
+- `list`/`status`/`info` render human-readable output instead of raw JSON.
+- Single self-contained `coterm.exe` for distribution (embedded Node runtime + ConPTY binaries).
+- Fix: packaged exe self-spawn now passes the embedded entrypoint (daemon starts in ~2s, hidden).
+
 ## [0.2.0] - 2026-08-01
 
 ### Single-process daemon (shared sessions)

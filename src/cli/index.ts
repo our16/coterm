@@ -36,7 +36,7 @@ export function buildCli(): Command {
   program
     .name('coterm')
     .description('CoTerm — AI native terminal runtime. Manage shared terminal sessions for Humans, AI Agents, and MCP tools.')
-    .version('0.2.0');
+    .version('0.3.0');
 
   program
     .command('activate')
