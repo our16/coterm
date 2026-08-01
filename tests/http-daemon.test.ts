@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import * as http from 'node:http';
 import { startHttpMcpServer } from '../src/mcp/http-server.js';
+import { isProcessAlive } from '../src/cleanup.js';
 import { SessionAPI } from '../src/api/session-api.js';
 import { SessionManager } from '../src/core/session-manager.js';
 import { MockPty } from './helpers/mock-pty.js';
@@ -43,6 +44,13 @@ async function connect(url: string, name: string) {
   await client.connect(transport);
   return { client, transport };
 }
+
+describe('cleanup helpers', () => {
+  test('isProcessAlive detects live and dead pids', () => {
+    expect(isProcessAlive(process.pid)).toBe(true);
+    expect(isProcessAlive(99999999)).toBe(false);
+  });
+});
 
 describe('CoTerm HTTP daemon /cli endpoint (node:http, no fetch)', () => {
   test('CLI-style JSON calls work against the shared daemon', async () => {

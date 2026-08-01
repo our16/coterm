@@ -9,6 +9,7 @@ import { logger } from '../utils/logger.js';
 import { getTempDir, isWindows } from '../utils/platform.js';
 import { loadConfig, ensureConfig, getMcpHost, getMcpPort, getConfigPath, saveConfig, setConfigValue, writeActiveState, removeActiveState, getPowershellIntegrationPath, readActiveState } from '../config.js';
 import { callDaemon, daemonAlive, waitForDaemon, listSessionsFromDaemon, getDaemonUrl, resolveSession } from './daemon-client.js';
+import { cleanupOrphanedSessions } from '../cleanup.js';
 
 const PID_FILE = path.join(getTempDir(), 'coterm.pid');
 
@@ -132,7 +133,15 @@ export async function cmdStart(options: StartOptions): Promise<void> {
   });
   logger.info({ url: httpServer.url }, 'CoTerm daemon ready (single process, shared sessions)');
 
+  // Auto-cleanup: close sessions whose creating window has exited.
+  cleanupOrphanedSessions(sessionAPI).catch(() => {});
+  const cleanupTimer = setInterval(() => {
+    cleanupOrphanedSessions(sessionAPI).catch(() => {});
+  }, 15000);
+  cleanupTimer.unref?.();
+
   await waitForSignal();
+  clearInterval(cleanupTimer);
   await httpServer.stop();
   await cleanup();
 }

@@ -5,6 +5,7 @@ import type { McpServer as McpServerSdk } from '@modelcontextprotocol/sdk/server
 import { buildMcpSdk } from './server.js';
 import { executeTool } from './executor.js';
 import { sessionAPI, type SessionAPI } from '../api/session-api.js';
+import { cleanupOrphanedSessions } from '../cleanup.js';
 import { logger } from '../utils/logger.js';
 import { DEFAULT_MCP_HOST, DEFAULT_MCP_PORT } from '../config.js';
 
@@ -74,6 +75,8 @@ export async function startHttpMcpServer(
       if (url.pathname !== path) {
         // Local CLI endpoint (plain JSON over node:http — no undici/fetch needed)
         if (url.pathname === '/cli' && req.method === 'POST') {
+          // Opportunistically close orphaned sessions (windows that exited).
+          await cleanupOrphanedSessions(api).catch(() => {});
           const body = (await readJsonBody(req)) as { tool?: string; args?: Record<string, unknown> } | undefined;
           if (!body?.tool) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
