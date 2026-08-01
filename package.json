@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "bun build src/index.ts --outdir=dist --target=node",
+    "build": "bun build src/main.ts --outdir=dist --target=node",
     "test": "bun test",
     "package:windows": "bun run build && pkg dist/index.js --target node18-windows-x64 --output coterm.exe"
   },
