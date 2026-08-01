@@ -233,13 +233,25 @@ function generateShellIntegration(exePath: string): string {
 _CoTerm_EXE='${safeExe}'
 _CoTerm_MARKER="$HOME/.config/coterm/active-$$"
 
-# Shorthand commands (read/history excluded to avoid clashing with shell builtins).
-# Only usable after THIS window is activated (per-window marker exists).
-for _CoTerm_c in list status run info create env stop deactivate off interrupt close record replay snapshot restore; do
-  eval "function $_CoTerm_c() { if [ ! -f \\"\\$HOME/.config/coterm/active-\\$\\$\\" ]; then echo 'CoTerm not activated in this window. Run: coterm' >&2; return 1; fi; \\"\\$_CoTerm_EXE\\" $_CoTerm_c \\"\\$@\\"; }"
-done
+# Shorthand commands (read/history excluded): only EXIST after 'coterm'
+# activates in this window; unset on stop and gone when the window closes.
+_CoTerm_cmds="list status run info create env stop deactivate off interrupt close record replay snapshot restore"
 
-function coterm() { "$_CoTerm_EXE" "$@"; }
+coterm() {
+  "$_CoTerm_EXE" "$@"
+  local code=$?
+  local cmd="\${1:-}"
+  if [ -z "$cmd" ] || [ "$cmd" = "activate" ] || [ "$cmd" = "on" ]; then
+    for c in $_CoTerm_cmds; do
+      eval "function $c() { \"\$_CoTerm_EXE\" $c \"\$@\"; }"
+    done
+  elif [ "$cmd" = "stop" ] || [ "$cmd" = "deactivate" ] || [ "$cmd" = "off" ]; then
+    for c in $_CoTerm_cmds; do
+      unset -f "$c" 2>/dev/null
+    done
+  fi
+  return $code
+}
 
 _CoTerm_update_prompt() {
   if [ -f "$_CoTerm_MARKER" ]; then
@@ -643,7 +655,8 @@ export function cmdDebug(): void {
   console.log(JSON.stringify({ pid: process.pid, ppid: process.ppid, cwd: process.cwd(), argv: process.argv.slice(1) }, null, 2));
 }
 
-export function cmdConfigShow(): void {  const configPath = getConfigPath();
+export function cmdConfigShow(): void {
+  const configPath = getConfigPath();
   const config = ensureConfig();
   console.log(`Config file: ${configPath}`);
   console.log('');
@@ -693,18 +706,28 @@ if (-not $script:CoTermPromptWrapped) {
   }
 }
 
-# Shorthand commands (read/history excluded): only usable after THIS window
-# is activated (per-window marker exists).
-function global:CoTerm-Active {
-  return (Test-Path "$env:USERPROFILE\\.config\\coterm\\active-$PID")
+# Shorthand commands (list/status/run/...) only EXIST after this window runs
+# 'coterm' (activate) — removed on stop and gone when the window closes.
+function global:CoTerm-EnableShorthands {
+  foreach ($n in $CoTermShorthandNames) {
+    & ([scriptblock]::Create("function global:$($n) { & '${safeExe}' $($n) @args }"))
+  }
 }
-foreach ($n in $CoTermShorthandNames) {
-  & ([scriptblock]::Create("function global:$($n) { if (-not (CoTerm-Active)) { Write-Host 'CoTerm not activated in this window. Run: coterm' -ForegroundColor Yellow; return }; & '${safeExe}' $($n) @args }"))
+function global:CoTerm-DisableShorthands {
+  foreach ($n in $CoTermShorthandNames) {
+    Remove-Item "Function:$($n)" -ErrorAction SilentlyContinue
+  }
 }
 
 function global:coterm {
   & $CoTermExe @args
   $code = $LASTEXITCODE
+  $cmd = @($args)[0]
+  if ($null -eq $cmd -or $cmd -eq 'activate' -or $cmd -eq 'on') {
+    CoTerm-EnableShorthands
+  } elseif ($cmd -eq 'stop' -or $cmd -eq 'deactivate' -or $cmd -eq 'off') {
+    CoTerm-DisableShorthands
+  }
   return $code
 }
 `;
