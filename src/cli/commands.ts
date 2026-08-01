@@ -179,6 +179,30 @@ export async function cmdCreate(options: { name?: string; shell?: string; cwd?: 
   }
 }
 
+function isPowerShellIntegrationInstalled(): boolean {
+  const integrationFile = path.join(os.homedir(), '.config', 'coterm-powershell.ps1');
+  if (!fs.existsSync(integrationFile)) return false;
+  const profilePaths = [
+    path.join(os.homedir(), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'),
+    path.join(os.homedir(), 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'),
+  ];
+  for (const p of profilePaths) {
+    if (fs.existsSync(p) && fs.readFileSync(p, 'utf8').includes('coterm-powershell')) return true;
+  }
+  return false;
+}
+
+function ensurePowerShellIntegration(): void {
+  if (isPowerShellIntegrationInstalled()) return;
+  try {
+    cmdInstallPowershell();
+    console.log('PowerShell integration installed automatically (prompt prefix + shorthand commands).');
+    console.log('Open a new terminal to see "(coterm) PS>".');
+  } catch {
+    // best-effort: integration is optional
+  }
+}
+
 export async function cmdActivate(options: { shell?: string; cwd?: string; name?: string } = {}): Promise<void> {
   if (await daemonAlive()) {
     console.log('CoTerm environment already active.');
@@ -194,6 +218,7 @@ export async function cmdActivate(options: { shell?: string; cwd?: string; name?
   }
 
   writeActiveMarker();
+  ensurePowerShellIntegration();
 
   const sessions = await listSessionsFromDaemon();
   if (sessions.length === 0) {
