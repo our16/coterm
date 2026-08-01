@@ -604,19 +604,17 @@ export function cmdInstallPowershell(): void {
     path.join(os.homedir(), 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'),
   ];
   const line = `\n# CoTerm\nif (Test-Path "${integrationFile}") { . "${integrationFile}" }\n`;
-  let wrote = false;
   for (const p of profilePaths) {
     fs.mkdirSync(path.dirname(p), { recursive: true });
     if (!fs.existsSync(p)) fs.writeFileSync(p, '');
-    if (!fs.readFileSync(p, 'utf8').includes('coterm-powershell')) {
-      fs.appendFileSync(p, line);
+    let content = fs.readFileSync(p, 'utf8');
+    // Remove stale old-format lines (flat ~/.config/coterm-powershell.ps1) so they don't linger.
+    content = content.replace(/.*coterm-powershell\.ps1.*\r?\n/g, '');
+    content = content.replace(/^# CoTerm\r?\n/gm, '');
+    if (!content.includes('coterm\\powershell.ps1')) {
+      content += line;
     }
-    wrote = true;
-  }
-  if (!wrote) {
-    const p = profilePaths[0];
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, line);
+    fs.writeFileSync(p, content, 'utf8');
   }
 
   console.log('CoTerm PowerShell integration installed:');
