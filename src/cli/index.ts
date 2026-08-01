@@ -198,7 +198,7 @@ export function buildCli(): Command {
       const cmd = opts.command ?? command.join(' ');
       const id = await resolveSession(sessionId);
       if (!cmd) {
-        console.log(`Opening the shared terminal for session ${id} — commands from you AND the AI (MCP) appear here live. Ctrl+A q to leave; type list/status/read/run for built-ins.`);
+        console.log(`Opening the shared terminal for session ${id} — commands from you AND the AI (MCP) appear here live. Ctrl+A q to leave.`);
         await cmdAttach(id);
         return;
       }

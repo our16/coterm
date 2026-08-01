@@ -406,7 +406,7 @@ async function attachToSession(sessionId: string): Promise<void> {
     console.warn('  On Windows, run it in Windows Terminal (or set COTERM_FORCE_ATTACH=1 to try anyway).');
   }
 
-  console.log(`Attached to session ${sessionId}. Ctrl+A q detach; Ctrl+C interrupts. Built-in commands (list/status/read/run) work in the shell.`);
+  console.log(`Attached to session ${sessionId}. Ctrl+A q to detach; Ctrl+C interrupts the session.`);
 
   // Baseline offset: don't replay what's already been output.
   let offset = 0;
@@ -446,8 +446,6 @@ async function attachToSession(sessionId: string): Promise<void> {
   // writes would race with AI commands and split multi-byte sequences (e.g.
   // the arrow key escape `\x1b[A`), garbling input/ordering. We flush on
   // Enter, Ctrl+C, or a short idle gap so typing feels live but stays atomic.
-  // Built-in commands (list/status/read/run) are handled by the session shell
-  // itself — the injected integration defines them as native functions.
   let inputBuffer = '';
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const flushInput = () => {
