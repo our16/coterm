@@ -529,10 +529,17 @@ if (-not $script:CoTermPromptWrapped) {
   function global:prompt {
     $prefix = ''
     if (Test-Path $CoTermActiveMarker) { $prefix = '(coterm) ' }
+    # Preserve conda-style prompt modifiers (e.g. "(base) ") even if our wrap
+    # captured the base prompt before conda defined its own.
+    $conda = $env:CONDA_PROMPT_MODIFIER
+    if ($conda) { $prefix = "$prefix$conda" }
     $base = if ($script:CoTermOriginalPrompt) {
-      & $script:CoTermOriginalPrompt
+      [string](& $script:CoTermOriginalPrompt)
     } else {
       "PS $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) "
+    }
+    if ($conda -and $base.StartsWith($conda)) {
+      $base = $base.Substring($conda.Length)
     }
     return "$prefix$base"
   }
@@ -558,20 +565,18 @@ export function cmdInstallPowershell(): void {
   fs.writeFileSync(integrationFile, generatePowershellIntegration(exePath), 'utf8');
 
   const profilePaths = [
-    path.join(os.homedir(), 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'),
     path.join(os.homedir(), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'),
+    path.join(os.homedir(), 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'),
   ];
   const line = `\n# CoTerm\nif (Test-Path "${integrationFile}") { . "${integrationFile}" }\n`;
   let wrote = false;
   for (const p of profilePaths) {
-    if (fs.existsSync(path.dirname(p))) {
-      if (!fs.existsSync(p)) fs.writeFileSync(p, '');
-      if (!fs.readFileSync(p, 'utf8').includes('coterm-powershell')) {
-        fs.appendFileSync(p, line);
-      }
-      wrote = true;
-      break;
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    if (!fs.existsSync(p)) fs.writeFileSync(p, '');
+    if (!fs.readFileSync(p, 'utf8').includes('coterm-powershell')) {
+      fs.appendFileSync(p, line);
     }
+    wrote = true;
   }
   if (!wrote) {
     const p = profilePaths[0];
