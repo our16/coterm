@@ -168,7 +168,7 @@ export function cmdStop(): void {
   }
   try {
     if (isWindows()) {
-      execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'pipe' });
+      execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'pipe', windowsHide: true });
     } else {
       process.kill(pid, 'SIGTERM');
     }

@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import type { SessionAPI } from './api/session-api.js';
 import { getConfigDir, readActiveState, removeActiveState } from './config.js';
 import { isWindows } from './utils/platform.js';
@@ -7,16 +7,15 @@ import { logger } from './utils/logger.js';
 
 export function isProcessAlive(pid: number): boolean {
   if (isWindows()) {
-    try {
-      const out = execSync(`tasklist /FI "PID eq ${pid}" /NH`, {
-        stdio: 'pipe',
-        encoding: 'utf8',
-        windowsHide: true,
-      });
-      return out.includes(String(pid));
-    } catch {
-      return false;
-    }
+    // spawnSync + windowsHide runs tasklist directly (no cmd.exe wrapper),
+    // so no console window flashes even in a hidden daemon.
+    const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/NH'], {
+      windowsHide: true,
+      stdio: 'pipe',
+      encoding: 'utf8',
+    });
+    if (r.error || r.status !== 0) return false;
+    return (r.stdout ?? '').includes(String(pid));
   }
   try {
     process.kill(pid, 0);
