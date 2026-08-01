@@ -36,22 +36,31 @@ export class SessionManager {
     this.sessions.delete(id);
   }
 
-  async attachAI(sessionId: string): Promise<void> {
+  async attachAI(sessionId: string, agentId?: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Session with id ${sessionId} not found`);
     }
     session.owner = 'ai';
-    eventBus.emit({ type: 'session:aiAttached', sessionId });
+    if (agentId) {
+      session.attachAgent(agentId);
+    } else {
+      eventBus.emit({ type: 'session:aiAttached', sessionId });
+    }
   }
 
-  async detachAI(sessionId: string): Promise<void> {
+  async detachAI(sessionId: string, agentId?: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Session with id ${sessionId} not found`);
     }
-    session.owner = 'human';
-    eventBus.emit({ type: 'session:aiDetached', sessionId });
+    if (agentId) {
+      session.detachAgent(agentId);
+    }
+    if (!agentId || session.getParticipants().length === 0) {
+      session.owner = 'human';
+      eventBus.emit({ type: 'session:aiDetached', sessionId, agent: agentId });
+    }
   }
 
   acquireWriteLock(sessionId: string, requester: 'human' | 'ai'): boolean {

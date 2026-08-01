@@ -1,9 +1,11 @@
-import type { CommandRecord, PtyAdapter, Requester, ScreenLine, SessionConfig, SessionEvent, SessionInfo, SessionIntelligenceState } from '../core/types.js';
+import type { CommandRecord, ConnectorConfig, PtyAdapter, RecordedEvent, Requester, ScreenLine, SessionConfig, SessionEvent, SessionInfo, SessionIntelligenceState, SessionSnapshot } from '../core/types.js';
 import { SessionManager } from '../core/session-manager.js';
 import { eventBus } from '../core/event-bus.js';
 import { uuid } from '../utils/uuid.js';
-import { isWindows } from '../utils/platform.js';
+import { detectDefaultShell, isWindows } from '../utils/platform.js';
 import { WindowsPtyAdapter } from '../pty/windows-pty.js';
+import { ConnectorManager, connectorManager } from '../connectors/connector-manager.js';
+import { createSnapshot, applySnapshot } from '../ai/snapshot.js';
 
 export interface SessionApiOptions {
   defaultShell?: string;
@@ -13,20 +15,17 @@ export interface SessionApiOptions {
   rows?: number;
   adapterFactory?: () => PtyAdapter;
   manager?: SessionManager;
+  connectors?: ConnectorManager;
 }
 
-export function detectDefaultShell(): string {
-  const shell = process.env.SHELL;
-  if (shell) return shell;
-  if (isWindows()) {
-    return process.env.COTERM_SHELL ?? 'powershell.exe';
-  }
-  return '/bin/bash';
+export interface SessionCreateOptions extends Partial<SessionConfig> {
+  connector?: ConnectorConfig;
 }
 
 export class SessionAPI {
   private options: Required<Pick<SessionApiOptions, 'defaultShell' | 'defaultShellArgs' | 'defaultCwd' | 'cols' | 'rows'>> & SessionApiOptions;
   private manager: SessionManager;
+  private connectors: ConnectorManager;
 
   constructor(options: SessionApiOptions = {}) {
     this.options = {
@@ -38,10 +37,15 @@ export class SessionAPI {
       adapterFactory: options.adapterFactory,
     };
     this.manager = options.manager ?? new SessionManager();
+    this.connectors = options.connectors ?? connectorManager;
   }
 
   getSessionManager(): SessionManager {
     return this.manager;
+  }
+
+  getConnectors(): string[] {
+    return this.connectors.list();
   }
 
   private createAdapter(): PtyAdapter {
@@ -59,17 +63,31 @@ export class SessionAPI {
     return session;
   }
 
-  async createSession(config: Partial<SessionConfig> = {}): Promise<string> {
-    const id = config.id ?? uuid();
+  async createSession(options: SessionCreateOptions = {}): Promise<string> {
+    const id = options.id ?? uuid();
+
+    let shell = options.shell ?? this.options.defaultShell;
+    let shellArgs = options.shellArgs ?? this.options.defaultShellArgs;
+    let cwd = options.cwd ?? this.options.defaultCwd;
+    let env = options.env ?? {};
+
+    if (options.connector) {
+      const resolved = this.connectors.resolve(options.connector);
+      shell = options.shell ?? resolved.shell;
+      shellArgs = options.shellArgs ?? resolved.shellArgs;
+      cwd = options.cwd ?? resolved.cwd ?? this.options.defaultCwd;
+      env = options.env ?? resolved.env ?? {};
+    }
+
     const fullConfig: SessionConfig = {
       id,
-      name: config.name ?? id,
-      shell: config.shell ?? this.options.defaultShell,
-      shellArgs: config.shellArgs ?? this.options.defaultShellArgs,
-      cwd: config.cwd ?? this.options.defaultCwd,
-      cols: config.cols ?? this.options.cols,
-      rows: config.rows ?? this.options.rows,
-      env: config.env ?? {},
+      name: options.name ?? id,
+      shell,
+      shellArgs,
+      cwd,
+      cols: options.cols ?? this.options.cols,
+      rows: options.rows ?? this.options.rows,
+      env,
     };
 
     const session = this.manager.createSession(fullConfig);
@@ -133,14 +151,59 @@ export class SessionAPI {
     await session.close();
   }
 
-  attach(sessionId: string): void {
+  attach(sessionId: string, agentId?: string): void {
     this.requireSession(sessionId);
-    this.manager.attachAI(sessionId);
+    this.manager.attachAI(sessionId, agentId);
   }
 
-  detach(sessionId: string): void {
+  detach(sessionId: string, agentId?: string): void {
     this.requireSession(sessionId);
-    this.manager.detachAI(sessionId);
+    this.manager.detachAI(sessionId, agentId);
+  }
+
+  getParticipants(sessionId: string): string[] {
+    return this.requireSession(sessionId).getParticipants();
+  }
+
+  startRecording(sessionId: string): void {
+    this.requireSession(sessionId).startRecording();
+  }
+
+  stopRecording(sessionId: string): void {
+    this.requireSession(sessionId).stopRecording();
+  }
+
+  isRecording(sessionId: string): boolean {
+    return this.requireSession(sessionId).isRecording();
+  }
+
+  getRecording(sessionId: string): RecordedEvent[] {
+    return this.requireSession(sessionId).getRecordingEvents();
+  }
+
+  getRecordingJsonl(sessionId: string): string {
+    return this.requireSession(sessionId).getRecordingJsonl();
+  }
+
+  snapshot(sessionId: string): SessionSnapshot {
+    return this.requireSession(sessionId).snapshot();
+  }
+
+  async restore(snapshot: SessionSnapshot): Promise<string> {
+    const config = {
+      id: snapshot.id,
+      name: snapshot.name,
+      shell: snapshot.shell,
+      shellArgs: snapshot.shellArgs,
+      cwd: snapshot.cwd,
+      cols: snapshot.cols,
+      rows: snapshot.rows,
+      env: snapshot.env,
+    };
+    const session = this.manager.createSession(config);
+    await session.start(this.createAdapter());
+    applySnapshot(session, snapshot);
+    return session.id;
   }
 
   getCurrentPrompt(sessionId: string): string | null {

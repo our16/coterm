@@ -15,7 +15,9 @@ export function registerTerminalTools(server: McpServer, api: SessionAPI): void 
     'terminal_create',
     {
       title: 'Create Terminal Session',
-      description: 'Create a new terminal session (spawns a shell via PTY). Returns the session ID.',
+      description:
+        'Create a new terminal session. Use connector.type to attach to a remote/container target: ' +
+        'local (default), ssh (host/user/port/identity), wsl (distro), docker (container). Spawns the shell via PTY.',
       inputSchema: {
         name: z.string().optional().describe('Optional session name'),
         shell: z.string().optional().describe('Shell executable, e.g. powershell.exe, cmd.exe, /bin/bash'),
@@ -23,11 +25,20 @@ export function registerTerminalTools(server: McpServer, api: SessionAPI): void 
         cwd: z.string().optional().describe('Working directory for the session'),
         cols: z.number().int().positive().optional().describe('Initial terminal columns'),
         rows: z.number().int().positive().optional().describe('Initial terminal rows'),
+        connector: z.object({
+          type: z.enum(['local', 'ssh', 'wsl', 'docker', 'kubernetes', 'serial']).describe('Connector type'),
+          host: z.string().optional().describe('Remote host (ssh)'),
+          port: z.number().int().positive().optional().describe('Remote port (ssh, default 22)'),
+          user: z.string().optional().describe('Remote user (ssh)'),
+          identity: z.string().optional().describe('Identity file path (ssh)'),
+          distro: z.string().optional().describe('WSL distribution name (wsl)'),
+          container: z.string().optional().describe('Container name/id (docker)'),
+        }).optional().describe('Connector configuration'),
       },
     },
-    async ({ name, shell, shellArgs, cwd, cols, rows }) => {
+    async ({ name, shell, shellArgs, cwd, cols, rows, connector }) => {
       try {
-        const sessionId = await api.createSession({ name, shell, shellArgs, cwd, cols, rows });
+        const sessionId = await api.createSession({ name, shell, shellArgs, cwd, cols, rows, connector });
         return toolText(JSON.stringify({ sessionId }));
       } catch (err) {
         return toolError(`Failed to create session: ${(err as Error).message}`);
@@ -50,15 +61,18 @@ export function registerTerminalTools(server: McpServer, api: SessionAPI): void 
     'terminal_attach',
     {
       title: 'Attach to Session',
-      description: 'Attach as AI collaborator to a session, granting write access through the input scheduler.',
+      description:
+        'Attach as an AI collaborator to a session, granting write access through the input scheduler. ' +
+        'Multiple AIs can attach with distinct agent ids to share one session.',
       inputSchema: {
         sessionId: z.string().describe('Session ID to attach to'),
+        agent: z.string().optional().describe('Agent identifier (default: anonymous)'),
       },
     },
-    async ({ sessionId }) => {
+    async ({ sessionId, agent }) => {
       try {
-        api.attach(sessionId);
-        return toolText(`Attached AI to session ${sessionId}`);
+        api.attach(sessionId, agent);
+        return toolText(`Attached AI${agent ? ` ${agent}` : ''} to session ${sessionId}`);
       } catch (err) {
         return toolError((err as Error).message);
       }
@@ -69,15 +83,16 @@ export function registerTerminalTools(server: McpServer, api: SessionAPI): void 
     'terminal_detach',
     {
       title: 'Detach from Session',
-      description: 'Detach the AI from a session, returning ownership to the human.',
+      description: 'Detach the AI from a session, returning ownership to the human when no AI remains.',
       inputSchema: {
         sessionId: z.string().describe('Session ID to detach from'),
+        agent: z.string().optional().describe('Agent identifier to detach'),
       },
     },
-    async ({ sessionId }) => {
+    async ({ sessionId, agent }) => {
       try {
-        api.detach(sessionId);
-        return toolText(`Detached AI from session ${sessionId}`);
+        api.detach(sessionId, agent);
+        return toolText(`Detached AI${agent ? ` ${agent}` : ''} from session ${sessionId}`);
       } catch (err) {
         return toolError((err as Error).message);
       }
@@ -244,6 +259,91 @@ export function registerTerminalTools(server: McpServer, api: SessionAPI): void 
         return toolText(JSON.stringify(slice, null, 2));
       } catch (err) {
         return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    'terminal_recording',
+    {
+      title: 'Session Recording Control',
+      description: 'Start or stop recording a session. While recording, all output/prompt/command events are captured with timestamps.',
+      inputSchema: {
+        sessionId: z.string().describe('Session ID to record'),
+        action: z.enum(['start', 'stop']).describe('start or stop recording'),
+      },
+    },
+    async ({ sessionId, action }) => {
+      try {
+        if (action === 'start') {
+          api.startRecording(sessionId);
+          return toolText(`Recording started for session ${sessionId}`);
+        }
+        api.stopRecording(sessionId);
+        return toolText(`Recording stopped for session ${sessionId}`);
+      } catch (err) {
+        return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    'terminal_replay',
+    {
+      title: 'Replay Session Recording',
+      description: 'Return the recorded events (JSONL) for a session: output, prompts, commands, attach/detach, interrupts.',
+      inputSchema: {
+        sessionId: z.string().describe('Session ID to replay'),
+        format: z.enum(['jsonl', 'json']).optional().describe('Output format (default jsonl)'),
+      },
+    },
+    async ({ sessionId, format }) => {
+      try {
+        const body = (format ?? 'jsonl') === 'jsonl' ? api.getRecordingJsonl(sessionId) : JSON.stringify(api.getRecording(sessionId), null, 2);
+        return toolText(body || '(no recorded events)');
+      } catch (err) {
+        return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    'terminal_snapshot',
+    {
+      title: 'Snapshot Session',
+      description:
+        'Capture a full session snapshot (config, screen buffer, prompt, command history, cwd, toolchains). ' +
+        'Use terminal_restore to recreate the session from the snapshot.',
+      inputSchema: {
+        sessionId: z.string().describe('Session ID to snapshot'),
+      },
+    },
+    async ({ sessionId }) => {
+      try {
+        const snapshot = api.snapshot(sessionId);
+        return toolText(JSON.stringify(snapshot));
+      } catch (err) {
+        return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    'terminal_restore',
+    {
+      title: 'Restore Session Snapshot',
+      description: 'Restore a previously captured session snapshot: creates a new session with the same config, screen, and command history.',
+      inputSchema: {
+        snapshot: z.string().describe('The session snapshot JSON (as returned by terminal_snapshot)'),
+      },
+    },
+    async ({ snapshot }) => {
+      try {
+        const parsed = JSON.parse(snapshot);
+        const sessionId = await api.restore(parsed);
+        return toolText(JSON.stringify({ sessionId }));
+      } catch (err) {
+        return toolError(`Failed to restore snapshot: ${(err as Error).message}`);
       }
     },
   );

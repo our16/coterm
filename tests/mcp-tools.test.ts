@@ -13,7 +13,7 @@ class DelayedPromptPty extends MockPty {
   }
 }
 
-const TOOL_COUNT = 13;
+const TOOL_COUNT = 17;
 
 async function setup(ptyFactory: () => MockPty = () => new MockPty()) {
   const api = new SessionAPI({
@@ -48,8 +48,12 @@ describe('CoTermMcpServer tools', () => {
         'terminal_interrupt',
         'terminal_list',
         'terminal_read',
+        'terminal_replay',
+        'terminal_recording',
+        'terminal_restore',
         'terminal_resize',
         'terminal_run',
+        'terminal_snapshot',
         'terminal_status',
         'terminal_wait_prompt',
         'terminal_write',
@@ -187,6 +191,72 @@ describe('CoTermMcpServer tools', () => {
     const history = JSON.parse(textOf(result));
     expect(history.map((c: { command: string }) => c.command)).toEqual(['git pull', 'pytest']);
     expect(history.every((c: { requester: string }) => c.requester === 'ai')).toBe(true);
+  });
+
+  test('terminal_create supports ssh connector', async () => {
+    const { api, client } = await setup();
+    const created = await client.callTool({
+      name: 'terminal_create',
+      arguments: { connector: { type: 'ssh', host: 'jump.example.com', user: 'admin', port: 2222 } },
+    });
+    const { sessionId } = JSON.parse(textOf(created));
+    const session = api.getSessionManager().getSession(sessionId);
+    expect(session?.config.shell).toBe('ssh');
+    expect(session?.config.shellArgs).toEqual(['-p', '2222', 'admin@jump.example.com']);
+  });
+
+  test('terminal_attach with agent ids enables multi-AI sharing', async () => {
+    const { api, client } = await setup();
+    const id = await api.createSession({ id: 'multi-ai' });
+
+    await client.callTool({ name: 'terminal_attach', arguments: { sessionId: id, agent: 'deploy-agent' } });
+    await client.callTool({ name: 'terminal_attach', arguments: { sessionId: id, agent: 'monitor-agent' } });
+    expect(api.getParticipants(id)).toEqual(['deploy-agent', 'monitor-agent']);
+
+    await client.callTool({ name: 'terminal_detach', arguments: { sessionId: id, agent: 'deploy-agent' } });
+    expect(api.getParticipants(id)).toEqual(['monitor-agent']);
+    expect(api.getSession(id).owner).toBe('ai');
+
+    await client.callTool({ name: 'terminal_detach', arguments: { sessionId: id, agent: 'monitor-agent' } });
+    expect(api.getParticipants(id)).toEqual([]);
+    expect(api.getSession(id).owner).toBe('human');
+  });
+
+  test('terminal_recording and terminal_replay capture events', async () => {
+    const { api, client } = await setup();
+    const id = await api.createSession({ id: 'rec-mcp' });
+    const session = api.getSessionManager().getSession(id);
+    const pty = session?.pty as MockPty;
+
+    await client.callTool({ name: 'terminal_recording', arguments: { sessionId: id, action: 'start' } });
+    pty.emitOutput('recording this\n');
+    const replay = await client.callTool({ name: 'terminal_replay', arguments: { sessionId: id } });
+    expect(textOf(replay)).toContain('recording this');
+
+    await client.callTool({ name: 'terminal_recording', arguments: { sessionId: id, action: 'stop' } });
+    expect(api.isRecording(id)).toBe(false);
+  });
+
+  test('terminal_snapshot and terminal_restore round-trip', async () => {
+    const { api, client } = await setup();
+    const id = await api.createSession({ id: 'snap-mcp', cwd: 'C:\\proj' });
+    const session = api.getSessionManager().getSession(id);
+    const pty = session?.pty as MockPty;
+
+    await api.runCommand(id, 'git status', 'ai');
+    pty.emitOutput('On branch main\r\n');
+    pty.emitOutput('PS C:\\proj>');
+
+    const snapResult = await client.callTool({ name: 'terminal_snapshot', arguments: { sessionId: id } });
+    const snapshot = textOf(snapResult);
+
+    await client.callTool({ name: 'terminal_close', arguments: { sessionId: id } });
+
+    const restoreResult = await client.callTool({ name: 'terminal_restore', arguments: { snapshot } });
+    const { sessionId: newId } = JSON.parse(textOf(restoreResult));
+    const restored = api.getIntelligence(newId);
+    expect(restored.lastCommand?.command).toBe('git status');
+    expect(restored.cwd).toBe('C:\\proj');
   });
 
   test('missing session returns isError', async () => {

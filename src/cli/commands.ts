@@ -13,15 +13,35 @@ export interface StartOptions {
   cwd?: string;
   name?: string;
   noMcp?: boolean;
+  connector?: string;
+  host?: string;
+  port?: number;
+  user?: string;
+  identity?: string;
+  distro?: string;
+  container?: string;
 }
 
 export async function cmdStart(options: StartOptions): Promise<void> {
   warnIfBunRuntime();
+
+  const connector = options.connector
+    ? {
+        type: options.connector as 'local' | 'ssh' | 'wsl' | 'docker',
+        host: options.host,
+        port: options.port,
+        user: options.user,
+        identity: options.identity,
+        distro: options.distro,
+        container: options.container,
+      }
+    : undefined;
   if (options.noMcp) {
     const sessionId = await sessionAPI.createSession({
       name: options.name,
       shell: options.shell,
       cwd: options.cwd,
+      connector,
     });
     console.log(`Session created: ${sessionId}`);
     console.log(`State: ${JSON.stringify(sessionAPI.getSession(sessionId))}`);
@@ -37,6 +57,7 @@ export async function cmdStart(options: StartOptions): Promise<void> {
     name: options.name ?? 'default',
     shell: options.shell,
     cwd: options.cwd,
+    connector,
   });
   logger.info({ sessionId }, 'Started default session');
 
@@ -147,6 +168,59 @@ export function cmdHistory(sessionId: string, limit: number = 50): void {
     console.log(JSON.stringify(history, null, 2));
   } catch (err) {
     console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
+export function cmdRecord(sessionId: string, action: 'start' | 'stop'): void {
+  try {
+    if (action === 'start') {
+      sessionAPI.startRecording(sessionId);
+      console.log(`Recording started for session ${sessionId}`);
+    } else {
+      sessionAPI.stopRecording(sessionId);
+      console.log(`Recording stopped for session ${sessionId} (${sessionAPI.getRecording(sessionId).length} events)`);
+    }
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
+export function cmdReplay(sessionId: string, format: 'jsonl' | 'json' = 'jsonl'): void {
+  try {
+    const body = format === 'jsonl' ? sessionAPI.getRecordingJsonl(sessionId) : JSON.stringify(sessionAPI.getRecording(sessionId), null, 2);
+    console.log(body || '(no recorded events)');
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
+export function cmdSnapshot(sessionId: string, outFile?: string): void {
+  try {
+    const snapshot = sessionAPI.snapshot(sessionId);
+    const body = JSON.stringify(snapshot, null, 2);
+    if (outFile) {
+      fs.writeFileSync(outFile, body);
+      console.log(`Snapshot written to ${outFile}`);
+    } else {
+      console.log(body);
+    }
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
+export async function cmdRestore(snapshotFile: string): Promise<void> {
+  try {
+    const raw = fs.readFileSync(snapshotFile, 'utf8');
+    const snapshot = JSON.parse(raw);
+    const sessionId = await sessionAPI.restore(snapshot);
+    console.log(`Restored session: ${sessionId}`);
+  } catch (err) {
+    console.error(`Failed to restore: ${(err as Error).message}`);
     process.exitCode = 1;
   }
 }

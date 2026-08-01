@@ -13,6 +13,10 @@ import {
   cmdHistory,
   cmdInterrupt,
   cmdClose,
+  cmdRecord,
+  cmdReplay,
+  cmdSnapshot,
+  cmdRestore,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -29,9 +33,28 @@ export function buildCli(): Command {
     .option('--shell <shell>', 'Shell executable to use for the default session')
     .option('--cwd <dir>', 'Working directory for the default session')
     .option('--name <name>', 'Name for the default session')
+    .option('--connector <type>', 'Connector type: local|ssh|wsl|docker')
+    .option('--host <host>', 'Remote host (ssh connector)')
+    .option('--port <n>', 'Remote port (ssh connector)', '22')
+    .option('--user <user>', 'Remote user (ssh connector)')
+    .option('--identity <path>', 'Identity file (ssh connector)')
+    .option('--distro <name>', 'WSL distribution (wsl connector)')
+    .option('--container <name>', 'Container name/id (docker connector)')
     .option('--no-mcp', 'Start runtime without the MCP server (debug mode)')
-    .action(async (opts: { shell?: string; cwd?: string; name?: string; mcp: boolean }) => {
-      await cmdStart({ shell: opts.shell, cwd: opts.cwd, name: opts.name, noMcp: !opts.mcp });
+    .action(async (opts: Record<string, unknown>) => {
+      await cmdStart({
+        shell: opts.shell as string | undefined,
+        cwd: opts.cwd as string | undefined,
+        name: opts.name as string | undefined,
+        noMcp: !(opts.mcp as boolean),
+        connector: opts.connector as string | undefined,
+        host: opts.host as string | undefined,
+        port: Number(opts.port ?? 22),
+        user: opts.user as string | undefined,
+        identity: opts.identity as string | undefined,
+        distro: opts.distro as string | undefined,
+        container: opts.container as string | undefined,
+      });
     });
 
   program
@@ -102,6 +125,41 @@ export function buildCli(): Command {
     .option('--limit <n>', 'Max commands', '50')
     .action((sessionId: string, opts: { limit: string }) => {
       cmdHistory(sessionId, Number(opts.limit));
+    });
+
+  program
+    .command('record <sessionId> <action>')
+    .description('Start or stop recording a session (actions: start|stop)')
+    .action((sessionId: string, action: string) => {
+      if (action !== 'start' && action !== 'stop') {
+        console.error('Action must be start or stop');
+        process.exitCode = 1;
+        return;
+      }
+      cmdRecord(sessionId, action);
+    });
+
+  program
+    .command('replay <sessionId>')
+    .description('Replay recorded session events as JSONL')
+    .option('--format <fmt>', 'Output format: jsonl|json', 'jsonl')
+    .action((sessionId: string, opts: { format: string }) => {
+      cmdReplay(sessionId, opts.format === 'json' ? 'json' : 'jsonl');
+    });
+
+  program
+    .command('snapshot <sessionId>')
+    .description('Capture a session snapshot')
+    .option('--out <file>', 'Write snapshot to file')
+    .action((sessionId: string, opts: { out?: string }) => {
+      cmdSnapshot(sessionId, opts.out);
+    });
+
+  program
+    .command('restore <file>')
+    .description('Restore a session from a snapshot file')
+    .action(async (file: string) => {
+      await cmdRestore(file);
     });
 
   program

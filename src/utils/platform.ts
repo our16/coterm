@@ -21,3 +21,12 @@ export function isDarwin(): boolean {
 export function getTempDir(): string {
   return process.env.TMPDIR ?? process.env.TMP ?? process.env.TEMP ?? '/tmp';
 }
+
+export function detectDefaultShell(): string {
+  const shell = process.env.SHELL;
+  if (shell) return shell;
+  if (isWindows()) {
+    return process.env.COTERM_SHELL ?? 'powershell.exe';
+  }
+  return '/bin/bash';
+}

@@ -5,6 +5,8 @@ import { PromptDetector } from '../buffer/prompt-detector.js';
 import { CommandQueue } from '../queue/command-queue.js';
 import { InputScheduler } from '../queue/input-scheduler.js';
 import { SessionIntelligence } from '../intelligence/session-intelligence.js';
+import { SessionRecorder } from '../ai/session-recorder.js';
+import { createSnapshot } from '../ai/snapshot.js';
 
 export class Session {
   public readonly id: string;
@@ -19,6 +21,8 @@ export class Session {
   public commandQueue: CommandQueue | null = null;
   public inputScheduler: InputScheduler | null = null;
   public intelligence: SessionIntelligence | null = null;
+  public recorder: SessionRecorder | null = null;
+  public participants: string[] = [];
 
   constructor(config: SessionConfig) {
     this.id = config.id;
@@ -34,6 +38,7 @@ export class Session {
 
     this.pty = pty;
     this.state = 'starting';
+    this.record({ type: 'session:output', sessionId: this.id, data: `Starting session ${this.id}...` });
     eventBus.emit({ type: 'session:output', sessionId: this.id, data: `Starting session ${this.id}...` });
 
     this.screenBuffer = new ScreenBuffer();
@@ -41,6 +46,7 @@ export class Session {
     this.commandQueue = new CommandQueue();
     this.inputScheduler = new InputScheduler();
     this.intelligence = new SessionIntelligence(this.config.cwd);
+    this.recorder = new SessionRecorder();
 
     this.pty.onOutput((data) => {
       this.handleOutput(data);
@@ -53,12 +59,18 @@ export class Session {
     try {
       await this.pty.spawn(this.config.shell, this.config.shellArgs, this.config.cwd, this.config.env);
       this.state = 'running';
+      this.record({ type: 'session:output', sessionId: this.id, data: `Session ${this.id} started` });
       eventBus.emit({ type: 'session:output', sessionId: this.id, data: `Session ${this.id} started` });
     } catch (err) {
       this.state = 'error';
+      this.record({ type: 'session:error', sessionId: this.id, error: err as Error });
       eventBus.emit({ type: 'session:error', sessionId: this.id, error: err as Error });
       throw err;
     }
+  }
+
+  private record(event: SessionEvent): void {
+    this.recorder?.record(event);
   }
 
   private handleOutput(data: string): void {
@@ -66,12 +78,14 @@ export class Session {
 
     this.screenBuffer.append(data);
     this.intelligence?.onOutput(data);
+    this.record({ type: 'session:output', sessionId: this.id, data });
     eventBus.emit({ type: 'session:output', sessionId: this.id, data });
 
     if (this.promptDetector) {
       const prompt = this.promptDetector.detect(data);
       if (prompt) {
         this.intelligence?.onPromptDetected();
+        this.record({ type: 'session:promptDetected', sessionId: this.id, prompt });
         eventBus.emit({ type: 'session:promptDetected', sessionId: this.id, prompt });
       }
     }
@@ -79,6 +93,8 @@ export class Session {
 
   private handleExit(code: number): void {
     this.state = 'closed';
+    this.record({ type: 'session:commandComplete', sessionId: this.id, exitCode: code });
+    this.record({ type: 'session:closed', sessionId: this.id });
     eventBus.emit({ type: 'session:commandComplete', sessionId: this.id, exitCode: code });
     eventBus.emit({ type: 'session:closed', sessionId: this.id });
   }
@@ -113,6 +129,48 @@ export class Session {
     if (this.pty) {
       this.pty.write('\x03');
     }
+  }
+
+  attachAgent(agentId: string): void {
+    if (!this.participants.includes(agentId)) {
+      this.participants.push(agentId);
+    }
+    this.record({ type: 'session:aiAttached', sessionId: this.id, agent: agentId });
+  }
+
+  detachAgent(agentId: string): void {
+    this.participants = this.participants.filter((a) => a !== agentId);
+    this.record({ type: 'session:aiDetached', sessionId: this.id, agent: agentId });
+  }
+
+  getParticipants(): string[] {
+    return [...this.participants];
+  }
+
+  startRecording(): void {
+    this.recorder?.start();
+    this.record({ type: 'session:recorded', sessionId: this.id, recording: true });
+  }
+
+  stopRecording(): void {
+    this.recorder?.stop();
+    this.record({ type: 'session:recorded', sessionId: this.id, recording: false });
+  }
+
+  isRecording(): boolean {
+    return this.recorder?.isRecording() ?? false;
+  }
+
+  getRecordingEvents(): import('./types.js').RecordedEvent[] {
+    return this.recorder?.getEvents() ?? [];
+  }
+
+  getRecordingJsonl(): string {
+    return this.recorder?.toJsonl() ?? '';
+  }
+
+  snapshot() {
+    return createSnapshot(this);
   }
 
   async close(): Promise<void> {

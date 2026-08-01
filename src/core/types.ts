@@ -29,9 +29,10 @@ export type SessionEvent =
   | { type: 'session:commandComplete'; sessionId: string; exitCode: number }
   | { type: 'session:error'; sessionId: string; error: Error }
   | { type: 'session:closed'; sessionId: string }
-  | { type: 'session:aiAttached'; sessionId: string }
-  | { type: 'session:aiDetached'; sessionId: string }
+  | { type: 'session:aiAttached'; sessionId: string; agent?: string }
+  | { type: 'session:aiDetached'; sessionId: string; agent?: string }
   | { type: 'session:interrupted'; sessionId: string; by: Requester }
+  | { type: 'session:recorded'; sessionId: string; recording: boolean }
   | { type: 'inputArbiter:locked'; sessionId: string; by: Requester }
   | { type: 'inputArbiter:unlocked'; sessionId: string };
 
@@ -62,13 +63,21 @@ export interface ConnectorConfig {
   port?: number;
   user?: string;
   identity?: string;
+  distro?: string;
+  container?: string;
+}
+
+export interface ResolvedConnector {
+  shell: string;
+  shellArgs: string[];
+  cwd?: string;
+  env?: Record<string, string>;
 }
 
 export interface Connector {
   name: string;
   type: ConnectorConfig['type'];
-  connect(config: ConnectorConfig): Promise<PtyAdapter>;
-  disconnect(adapter: PtyAdapter): Promise<void>;
+  resolve(config: ConnectorConfig): ResolvedConnector;
 }
 
 export interface CommandEntry {
@@ -109,4 +118,29 @@ export interface SessionIntelligenceState {
   commands: CommandRecord[];
   currentCommand: CommandRecord | null;
   lastCommand: CommandRecord | undefined;
+}
+
+export interface RecordedEvent {
+  id: string;
+  type: SessionEvent['type'];
+  sessionId: string;
+  timestamp: number;
+  data: Record<string, unknown>;
+}
+
+export interface SessionSnapshot {
+  id: string;
+  name: string;
+  shell: string;
+  shellArgs: string[];
+  cwd: string;
+  cols: number;
+  rows: number;
+  env: Record<string, string>;
+  createdAt: number;
+  owner: Requester;
+  state: SessionState;
+  prompt: string | null;
+  screenLines: ScreenLine[];
+  intelligence: SessionIntelligenceState;
 }
