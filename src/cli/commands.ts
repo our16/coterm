@@ -1,7 +1,7 @@
 ﻿import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execSync, spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { sessionAPI } from '../api/session-api.js';
 import { startMcpServer, CoTermMcpServer } from '../mcp/server.js';
 import { startHttpMcpServer } from '../mcp/http-server.js';
@@ -168,7 +168,7 @@ export function cmdStop(): void {
   }
   try {
     if (isWindows()) {
-      execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'pipe', windowsHide: true });
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'pipe', windowsHide: true });
     } else {
       process.kill(pid, 'SIGTERM');
     }
