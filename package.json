@@ -1,6 +1,6 @@
 {
   "name": "coterm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI-native Terminal Session Runtime — the runtime layer between AI and the terminal",
   "type": "module",
   "license": "MIT",

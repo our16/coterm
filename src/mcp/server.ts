@@ -8,7 +8,7 @@ export function buildMcpSdk(api: SessionAPI): McpServerSdk {
   const server = new McpServerSdk(
     {
       name: 'coterm',
-      version: '0.1.0',
+      version: '0.2.0',
     },
     {
       capabilities: {
