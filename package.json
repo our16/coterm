@@ -1,0 +1,29 @@
+{
+  "name": "coterm",
+  "version": "0.1.0",
+  "description": "AI Session Runtime — manage terminal sessions for AI collaboration",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "bun build src/index.ts --outdir=dist --target=node",
+    "test": "bun test",
+    "package:windows": "bun run build && pkg dist/index.js --target node18-windows-x64 --output coterm.exe"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "commander": "^12.1.0",
+    "node-pty": "^1.1.0-beta15",
+    "pino": "^9.6.0",
+    "uuid": "^10.0.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "pkg": "^5.8.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}
