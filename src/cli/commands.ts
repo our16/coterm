@@ -132,6 +132,25 @@ export function cmdResize(sessionId: string, cols: number, rows: number): void {
   }
 }
 
+export function cmdStatus(sessionId: string): void {
+  try {
+    console.log(JSON.stringify(sessionAPI.getIntelligence(sessionId), null, 2));
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
+export function cmdHistory(sessionId: string, limit: number = 50): void {
+  try {
+    const history = sessionAPI.getHistory(sessionId).slice(-limit);
+    console.log(JSON.stringify(history, null, 2));
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+  }
+}
+
 export function cmdInterrupt(sessionId: string): void {
   try {
     sessionAPI.interrupt(sessionId, 'human');

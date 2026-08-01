@@ -89,3 +89,24 @@ export interface McpTool {
   description: string;
   parameters: Record<string, { type: string; description: string; required?: boolean }>;
 }
+
+export interface CommandRecord {
+  id: string;
+  command: string;
+  requester: Requester;
+  startedAt: number;
+  durationMs?: number;
+  exitCode?: number;
+  error?: boolean;
+  outputPreview?: string;
+}
+
+export interface SessionIntelligenceState {
+  cwd: string;
+  state: SessionState;
+  fullScreenApp: boolean;
+  toolchains: Record<string, string>;
+  commands: CommandRecord[];
+  currentCommand: CommandRecord | null;
+  lastCommand: CommandRecord | undefined;
+}

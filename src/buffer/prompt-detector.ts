@@ -38,12 +38,19 @@ export class PromptDetector {
     const pattern = this.patterns.get(this.shellKey) ?? this.patterns.get('default') ?? this.patterns.values().next().value;
     if (!pattern) return null;
 
-    const match = output.match(pattern);
+    const clean = this.stripAnsi(output);
+    const match = clean.match(pattern);
     if (match) {
       this.lastPrompt = match[0];
       return match[0];
     }
     return null;
+  }
+
+  private stripAnsi(text: string): string {
+    return text
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+      .replace(/\x1b\][^\x07]*\x07?/g, '');
   }
 
   getLastPrompt(): string | null {

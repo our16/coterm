@@ -1,9 +1,10 @@
-import type { SessionConfig, SessionState, SessionEvent, ScreenLine, PtyAdapter, Requester, CommandEntry } from './types.js';
+import type { SessionConfig, SessionState, SessionEvent, ScreenLine, PtyAdapter, Requester, CommandEntry, SessionIntelligenceState } from './types.js';
 import { eventBus } from './event-bus.js';
 import { ScreenBuffer } from '../buffer/screen-buffer.js';
 import { PromptDetector } from '../buffer/prompt-detector.js';
 import { CommandQueue } from '../queue/command-queue.js';
 import { InputScheduler } from '../queue/input-scheduler.js';
+import { SessionIntelligence } from '../intelligence/session-intelligence.js';
 
 export class Session {
   public readonly id: string;
@@ -17,6 +18,7 @@ export class Session {
   public promptDetector: PromptDetector | null = null;
   public commandQueue: CommandQueue | null = null;
   public inputScheduler: InputScheduler | null = null;
+  public intelligence: SessionIntelligence | null = null;
 
   constructor(config: SessionConfig) {
     this.id = config.id;
@@ -38,6 +40,7 @@ export class Session {
     this.promptDetector = new PromptDetector(this.config.shell);
     this.commandQueue = new CommandQueue();
     this.inputScheduler = new InputScheduler();
+    this.intelligence = new SessionIntelligence(this.config.cwd);
 
     this.pty.onOutput((data) => {
       this.handleOutput(data);
@@ -62,11 +65,13 @@ export class Session {
     if (!this.screenBuffer) return;
 
     this.screenBuffer.append(data);
+    this.intelligence?.onOutput(data);
     eventBus.emit({ type: 'session:output', sessionId: this.id, data });
 
     if (this.promptDetector) {
       const prompt = this.promptDetector.detect(data);
       if (prompt) {
+        this.intelligence?.onPromptDetected();
         eventBus.emit({ type: 'session:promptDetected', sessionId: this.id, prompt });
       }
     }
@@ -78,14 +83,24 @@ export class Session {
     eventBus.emit({ type: 'session:closed', sessionId: this.id });
   }
 
-  async write(data: string): Promise<void> {
+  async write(data: string, requester?: Requester): Promise<void> {
     if (!this.pty) {
       throw new Error(`Session ${this.id} has no PTY adapter`);
     }
     if (this.state !== 'running' && this.state !== 'active' && this.state !== 'paused') {
       throw new Error(`Cannot write to session in state ${this.state}`);
     }
+    this.recordEnterCommand(data, requester ?? this.owner);
     await this.pty.write(data);
+  }
+
+  private recordEnterCommand(data: string, requester: Requester): void {
+    if (!this.intelligence) return;
+    const lastEnter = data.lastIndexOf('\r');
+    if (lastEnter === -1) return;
+    let command = data.slice(0, lastEnter + 1).replace(/[\r\n]/g, '').trim();
+    if (!command) return;
+    this.intelligence.recordCommand(command, requester);
   }
 
   resize(cols: number, rows: number): void {
@@ -144,6 +159,21 @@ export class Session {
 
   getState(): SessionState {
     return this.state;
+  }
+
+  getIntelligenceState(): SessionIntelligenceState {
+    if (!this.intelligence) {
+      return {
+        cwd: this.config.cwd,
+        state: this.state,
+        fullScreenApp: false,
+        toolchains: {},
+        commands: [],
+        currentCommand: null,
+        lastCommand: undefined,
+      };
+    }
+    return this.intelligence.getState(this.state);
   }
 
   getInfo(): { id: string; name: string; state: SessionState; shell: string; cwd: string; createdAt: number; owner: Requester } {

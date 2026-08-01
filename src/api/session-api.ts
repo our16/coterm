@@ -1,4 +1,4 @@
-import type { PtyAdapter, Requester, ScreenLine, SessionConfig, SessionEvent, SessionInfo } from '../core/types.js';
+import type { CommandRecord, PtyAdapter, Requester, ScreenLine, SessionConfig, SessionEvent, SessionInfo, SessionIntelligenceState } from '../core/types.js';
 import { SessionManager } from '../core/session-manager.js';
 import { eventBus } from '../core/event-bus.js';
 import { uuid } from '../utils/uuid.js';
@@ -100,7 +100,7 @@ export class SessionAPI {
       await scheduler.enqueuePending(requester, data);
     }
     try {
-      await session.write(data);
+      await session.write(data, requester);
     } finally {
       scheduler.release();
     }
@@ -145,6 +145,14 @@ export class SessionAPI {
 
   getCurrentPrompt(sessionId: string): string | null {
     return this.requireSession(sessionId).getCurrentPrompt();
+  }
+
+  getIntelligence(sessionId: string): SessionIntelligenceState {
+    return this.requireSession(sessionId).getIntelligenceState();
+  }
+
+  getHistory(sessionId: string): CommandRecord[] {
+    return this.requireSession(sessionId).getIntelligenceState().commands;
   }
 
   async waitForPrompt(sessionId: string, timeoutMs: number = 30000): Promise<string> {

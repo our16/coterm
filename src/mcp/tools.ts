@@ -207,6 +207,48 @@ export function registerTerminalTools(server: McpServer, api: SessionAPI): void 
   );
 
   server.registerTool(
+    'terminal_status',
+    {
+      title: 'Session Intelligence Status',
+      description:
+        'Get structured session intelligence: current directory, shell state, running full-screen app, ' +
+        'detected toolchains (node/python/git/docker...), and the command graph (recent commands with duration and errors).',
+      inputSchema: {
+        sessionId: z.string().describe('Session ID to inspect'),
+      },
+    },
+    async ({ sessionId }) => {
+      try {
+        const intelligence = api.getIntelligence(sessionId);
+        return toolText(JSON.stringify(intelligence, null, 2));
+      } catch (err) {
+        return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    'terminal_history',
+    {
+      title: 'Command History',
+      description: 'Return the recorded command graph for a session (command, requester, duration, error status, output preview).',
+      inputSchema: {
+        sessionId: z.string().describe('Session ID to inspect'),
+        limit: z.number().int().positive().max(200).optional().describe('Max commands to return (default 50)'),
+      },
+    },
+    async ({ sessionId, limit }) => {
+      try {
+        const history = api.getHistory(sessionId);
+        const slice = history.slice(-(limit ?? 50));
+        return toolText(JSON.stringify(slice, null, 2));
+      } catch (err) {
+        return toolError((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
     'terminal_close',
     {
       title: 'Close Session',

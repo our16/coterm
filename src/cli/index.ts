@@ -9,6 +9,8 @@ import {
   cmdWrite,
   cmdWait,
   cmdResize,
+  cmdStatus,
+  cmdHistory,
   cmdInterrupt,
   cmdClose,
 } from './commands.js';
@@ -85,6 +87,21 @@ export function buildCli(): Command {
     .requiredOption('--rows <n>', 'Row count')
     .action((sessionId: string, opts: { cols: string; rows: string }) => {
       cmdResize(sessionId, Number(opts.cols), Number(opts.rows));
+    });
+
+  program
+    .command('status <sessionId>')
+    .description('Show session intelligence (cwd, toolchains, full-screen app, command graph)')
+    .action((sessionId: string) => {
+      cmdStatus(sessionId);
+    });
+
+  program
+    .command('history <sessionId>')
+    .description('Show the recorded command graph for a session')
+    .option('--limit <n>', 'Max commands', '50')
+    .action((sessionId: string, opts: { limit: string }) => {
+      cmdHistory(sessionId, Number(opts.limit));
     });
 
   program

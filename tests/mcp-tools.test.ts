@@ -13,7 +13,7 @@ class DelayedPromptPty extends MockPty {
   }
 }
 
-const TOOL_COUNT = 11;
+const TOOL_COUNT = 13;
 
 async function setup(ptyFactory: () => MockPty = () => new MockPty()) {
   const api = new SessionAPI({
@@ -44,11 +44,13 @@ describe('CoTermMcpServer tools', () => {
         'terminal_close',
         'terminal_create',
         'terminal_detach',
+        'terminal_history',
         'terminal_interrupt',
         'terminal_list',
         'terminal_read',
         'terminal_resize',
         'terminal_run',
+        'terminal_status',
         'terminal_wait_prompt',
         'terminal_write',
       ].sort(),
@@ -146,6 +148,45 @@ describe('CoTermMcpServer tools', () => {
     const result = await client.callTool({ name: 'terminal_close', arguments: { sessionId: id } });
     expect(textOf(result)).toContain('Closed');
     expect(api.listSessions()).toHaveLength(0);
+  });
+
+  test('terminal_status returns structured intelligence', async () => {
+    const { api, client } = await setup();
+    const id = await api.createSession({ id: 'status-test', cwd: 'C:\\proj' });
+    const session = api.getSessionManager().getSession(id);
+    const pty = session?.pty as MockPty;
+
+    await api.runCommand(id, 'git status', 'ai');
+    pty.emitOutput('\x1b[?1049h'); // simulate vim
+    pty.emitOutput('On branch main\r\n');
+    pty.emitOutput('PS C:\\proj>');
+
+    const result = await client.callTool({ name: 'terminal_status', arguments: { sessionId: id } });
+    const status = JSON.parse(textOf(result));
+    expect(status.cwd).toBe('C:\\proj');
+    expect(status.state).toBe('running');
+    expect(status.fullScreenApp).toBe(true);
+    expect(status.commands.length).toBeGreaterThanOrEqual(1);
+    expect(status.lastCommand.command).toBe('git status');
+    expect(status.lastCommand.error).toBe(false);
+    expect(status.currentCommand).toBeNull();
+  });
+
+  test('terminal_history returns recorded command graph', async () => {
+    const { api, client } = await setup();
+    const id = await api.createSession({ id: 'history-test' });
+    const session = api.getSessionManager().getSession(id);
+    const pty = session?.pty as MockPty;
+
+    await api.runCommand(id, 'git pull', 'ai');
+    pty.emitOutput('Already up to date.\r\nPS C:\\proj>');
+    await api.runCommand(id, 'pytest', 'ai');
+    pty.emitOutput('2 passed\r\nPS C:\\proj>');
+
+    const result = await client.callTool({ name: 'terminal_history', arguments: { sessionId: id } });
+    const history = JSON.parse(textOf(result));
+    expect(history.map((c: { command: string }) => c.command)).toEqual(['git pull', 'pytest']);
+    expect(history.every((c: { requester: string }) => c.requester === 'ai')).toBe(true);
   });
 
   test('missing session returns isError', async () => {
