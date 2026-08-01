@@ -334,11 +334,11 @@ async function attachToSession(sessionId: string): Promise<void> {
 
   console.log(`Attached to session ${sessionId}. Ctrl+A q to detach; Ctrl+C interrupts the session.`);
 
-  // Baseline: don't replay what's already in the buffer.
-  let lastLen = 0;
+  // Baseline offset: don't replay what's already been output.
+  let offset = 0;
   try {
-    const r = await callDaemon('terminal_read', { sessionId, lines: 500 });
-    lastLen = r.text.length;
+    const r = await callDaemon('terminal_raw', { sessionId, from: 0 });
+    offset = (JSON.parse(r.text) as { offset: number }).offset;
   } catch {
     // ignore
   }
@@ -378,20 +378,22 @@ async function attachToSession(sessionId: string): Promise<void> {
         done = true;
         return;
       }
-      const r = await callDaemon('terminal_read', { sessionId, lines: 500 });
-      const text = r.text;
-      if (text.length > lastLen) {
-        process.stdout.write(text.slice(lastLen));
-        lastLen = text.length;
+      // Stream raw PTY output (with cursor control) so the terminal renders
+      // interactive typing correctly.
+      const r = await callDaemon('terminal_raw', { sessionId, from: offset });
+      const raw = JSON.parse(r.text) as { text: string; offset: number };
+      if (raw.text) {
+        process.stdout.write(raw.text);
+        offset = raw.offset;
       }
     } catch {
       // daemon gone — treat as ended
       done = true;
     }
-  }, 200);
+  }, 50);
 
   while (!done) {
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 40));
   }
 
   clearInterval(poll);

@@ -24,6 +24,8 @@ export class Session {
   public recorder: SessionRecorder | null = null;
   public participants: string[] = [];
   public presence: PresenceState = 'idle';
+  private rawLog: string = '';
+  private readonly rawLogMax = 1024 * 1024;
 
   constructor(config: SessionConfig) {
     this.id = config.id;
@@ -88,6 +90,7 @@ export class Session {
   private handleOutput(data: string): void {
     if (!this.screenBuffer) return;
 
+    this.rawLog = (this.rawLog + data).slice(-this.rawLogMax);
     this.screenBuffer.append(data);
     this.intelligence?.onOutput(data);
     this.record({ type: 'session:output', sessionId: this.id, data });
@@ -102,6 +105,11 @@ export class Session {
         this.setPresence(this.participants.length > 0 ? 'ai-thinking' : 'idle');
       }
     }
+  }
+
+  /** Raw PTY output from a byte offset (for terminal streaming/attach). */
+  getRawOutput(from: number): { text: string; offset: number } {
+    return { text: this.rawLog.slice(from), offset: this.rawLog.length };
   }
 
   private handleExit(code: number): void {

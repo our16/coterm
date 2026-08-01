@@ -60,6 +60,17 @@ export async function executeTool(api: SessionAPI, name: string, args: Record<st
         return err((e as Error).message);
       }
     }
+    case 'terminal_raw': {
+      const { sessionId, from } = args as { sessionId: string; from?: number };
+      try {
+        const session = api.getSessionManager().getSession(sessionId);
+        if (!session) return err(`Session ${sessionId} not found`);
+        const raw = session.getRawOutput(from ?? 0);
+        return ok(JSON.stringify(raw));
+      } catch (e) {
+        return err((e as Error).message);
+      }
+    }
     case 'terminal_write': {
       const { sessionId, data } = args as { sessionId: string; data: string };
       try {
