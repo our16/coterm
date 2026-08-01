@@ -384,92 +384,6 @@ function syncTerminalSize(sessionId: string): void {
   callDaemon('terminal_resize', { sessionId, cols, rows }).catch(() => {});
 }
 
-/**
- * Built-in CoTerm commands recognized inside the attached view. Typing one of
- * these runs the CoTerm command (like `coterm <cmd>`) and prints the result to
- * the view, instead of sending the line to the session shell.
- */
-const VIEW_COMMANDS: Record<string, (sessionId: string, arg: string) => Promise<string>> = {
-  list: async () => {
-    const { text, isError } = await callDaemon('terminal_list', {});
-    if (isError) return `[error] ${text}`;
-    try {
-      const sessions = JSON.parse(text) as Array<{ id: string; name: string; state: string; shell: string; cwd: string }>;
-      return sessions.map((s) => `${String(s.name ?? '').padEnd(14)}  ${String(s.state ?? '').padEnd(9)}  ${String(s.id ?? '')}`).join('\n');
-    } catch {
-      return text;
-    }
-  },
-  status: async (sessionId) => {
-    const { text, isError } = await callDaemon('terminal_status', { sessionId });
-    return isError ? `[error] ${text}` : formatStatus(text);
-  },
-  read: async (sessionId, arg) => {
-    const { text, isError } = await callDaemon('terminal_read', { sessionId, lines: Number(arg) || 50 });
-    return isError ? `[error] ${text}` : text;
-  },
-  history: async (sessionId, arg) => {
-    const { text, isError } = await callDaemon('terminal_history', { sessionId, limit: Number(arg) || 50 });
-    return isError ? `[error] ${text}` : text;
-  },
-  interrupt: async (sessionId) => {
-    const { text, isError } = await callDaemon('terminal_interrupt', { sessionId });
-    return isError ? `[error] ${text}` : text;
-  },
-  run: async (sessionId, arg) => {
-    if (!arg.trim()) return 'usage: run <command>';
-    const { text, isError } = await callDaemon('terminal_run', { sessionId, command: arg, timeout: 30000 });
-    return isError ? `[error] ${text}` : text;
-  },
-  wait: async (sessionId, arg) => {
-    const { text, isError } = await callDaemon('terminal_wait_prompt', { sessionId, timeout: Number(arg) || 30000 });
-    return isError ? `[error] ${text}` : text;
-  },
-  resize: async (sessionId, arg) => {
-    const [c, r] = arg.split(' ');
-    const { text, isError } = await callDaemon('terminal_resize', { sessionId, cols: Number(c) || 120, rows: Number(r) || 30 });
-    return isError ? `[error] ${text}` : text;
-  },
-};
-
-function formatStatus(text: string): string {
-  try {
-    const st = JSON.parse(text) as { cwd?: string; info?: { state?: string }; lastCommand?: { command?: string; error?: boolean }; toolchains?: Record<string, boolean> };
-    const lines = [
-      `state  : ${st.info?.state ?? '?'}`,
-      `cwd    : ${st.cwd ?? '?'}`,
-      `last   : ${st.lastCommand?.command ?? '(none)'}${st.lastCommand?.error ? ' [error]' : ''}`,
-      `tools  : ${Object.keys(st.toolchains ?? {}).join(', ') || '(none)'}`,
-    ];
-    return lines.join('\n');
-  } catch {
-    return text;
-  }
-}
-
-/**
- * Try to run `cmdLine` as a built-in view command. Returns true if it was a
- * known command (and the result was printed to the view), false otherwise.
- */
-function execViewCommandLine(sessionId: string, cmdLine: string): boolean {
-  const trimmed = cmdLine.trim();
-  const first = trimmed.split(/\s+/)[0] ?? '';
-  const handler = VIEW_COMMANDS[first];
-  if (!handler) return false;
-  const arg = trimmed.slice(first.length).trim();
-  // Let the shell render its Ctrl+C cancellation + fresh prompt before we
-  // print the result, so the two writers don't interleave on the terminal.
-  // The command itself was already echoed by the shell, so only show the result.
-  setTimeout(() => {
-    void handler(sessionId, arg).then((result) => {
-      process.stdout.write(`\x1b[2m${result}\x1b[0m\r\n`);
-    }).catch((err) => {
-      process.stdout.write(`\x1b[31m${(err as Error).message}\x1b[0m\r\n`);
-    });
-  }, 60);
-  return true;
-}
-
 /** Is the current terminal VT/ANSI capable (needed for interactive attach)? */
 function isVtTerminal(): boolean {
   if (isWindows()) {
@@ -492,7 +406,7 @@ async function attachToSession(sessionId: string): Promise<void> {
     console.warn('  On Windows, run it in Windows Terminal (or set COTERM_FORCE_ATTACH=1 to try anyway).');
   }
 
-  console.log(`Attached to session ${sessionId}. Ctrl+A q detach; Ctrl+C interrupts; type list/status/read/run ... for built-in commands.`);
+  console.log(`Attached to session ${sessionId}. Ctrl+A q detach; Ctrl+C interrupts. Built-in commands (list/status/read/run) work in the shell.`);
 
   // Baseline offset: don't replay what's already been output.
   let offset = 0;
@@ -528,14 +442,13 @@ async function attachToSession(sessionId: string): Promise<void> {
   let done = false;
   let prefixA = false;
 
-  // Keystrokes are streamed to the shell as-is (so typing feels live and the
-  // shell echoes them). We additionally track the current line; on Enter, if
-  // the line is a built-in CoTerm command (list/status/read/run/...), we send
-  // Ctrl+C to cancel the echoed line (the shell renders `^C` + a fresh prompt)
-  // and run it locally, printing the result after the shell settles — no
-  // backspace trickery that can race with the live output stream.
+  // Batch keystrokes and send them as a single write. Per-character HTTP
+  // writes would race with AI commands and split multi-byte sequences (e.g.
+  // the arrow key escape `\x1b[A`), garbling input/ordering. We flush on
+  // Enter, Ctrl+C, or a short idle gap so typing feels live but stays atomic.
+  // Built-in commands (list/status/read/run) are handled by the session shell
+  // itself — the injected integration defines them as native functions.
   let inputBuffer = '';
-  let lineBuf = '';
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const flushInput = () => {
     if (flushTimer) {
@@ -564,25 +477,6 @@ async function attachToSession(sessionId: string): Promise<void> {
         continue;
       }
       inputBuffer += ch;
-
-      // Track the current line for Enter-time command detection.
-      if (ch === '\r' || ch === '\n') {
-        const cmd = lineBuf.trim();
-        if (cmd && execViewCommandLine(sessionId, cmd)) {
-          // Cancel the echoed line in the shell so it doesn't execute.
-          inputBuffer = '';
-          lineBuf = '';
-          callDaemon('terminal_write', { sessionId, data: '\x03', requester: 'human' }).catch(() => {});
-          return;
-        }
-        lineBuf = '';
-      } else if (ch === '\x03') {
-        lineBuf = '';
-      } else if (ch === '\x08' || ch === '\x7f') {
-        lineBuf = lineBuf.slice(0, -1);
-      } else {
-        lineBuf += ch;
-      }
     }
     if (flushTimer) {
       clearTimeout(flushTimer);

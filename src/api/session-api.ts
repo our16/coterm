@@ -8,6 +8,8 @@ import { createSnapshot, applySnapshot } from '../ai/snapshot.js';
 import { createPtyAdapter } from '../pty/factory.js';
 import { WorkspaceManager, workspaceManager } from '../workspace/workspace-manager.js';
 import type { WorkspaceInfo } from '../workspace/workspace.js';
+import { getMcpPort, loadConfig } from '../config.js';
+import { buildSessionShellIntegration } from '../session/session-shell.js';
 
 export interface SessionApiOptions {
   defaultShell?: string;
@@ -119,6 +121,16 @@ export class SessionAPI {
     let spawnShell = shell;
     if (!options.connector) {
       spawnShell = resolveShellPath(shell) ?? shell;
+    }
+
+    // Inject CoTerm's built-in commands into the session's shell (native
+    // list/status/read/run functions) so they work inside the session without
+    // attach-side interception. Local shells only; remote connectors have
+    // their own shell environments.
+    if (!options.connector) {
+      const integration = buildSessionShellIntegration(id, spawnShell, shellArgs, getMcpPort(loadConfig()));
+      shellArgs = integration.shellArgs;
+      env = { ...integration.env, ...env };
     }
 
     const fullConfig: SessionConfig = {
