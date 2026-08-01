@@ -46,9 +46,10 @@ export function detectDefaultShell(): string {
   if (shell) return shell;
   if (isWindows()) {
     if (process.env.COTERM_SHELL) return process.env.COTERM_SHELL;
-    // Prefer PowerShell Core, then Windows PowerShell, then cmd.
+    // Prefer PowerShell Core (pwsh), then cmd. Windows PowerShell 5.1
+    // (powershell.exe) is excluded: its ConPTY interactive output reorders
+    // native vs cmdlet results (e.g. `pwd; whoami` shows whoami first).
     if (isInPath('pwsh')) return 'pwsh';
-    if (isInPath('powershell')) return 'powershell.exe';
     return 'cmd.exe';
   }
   return '/bin/bash';

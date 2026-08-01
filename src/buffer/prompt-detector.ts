@@ -2,6 +2,7 @@ import type { PromptPattern } from '../core/types.js';
 
 const DEFAULT_PATTERNS: Record<string, RegExp> = {
   powershell: /PS [^>]*>\s*$/,
+  pwsh: /PS [^>]*>\s*$/,
   cmd: />\s*$/,
   bash: /\$\s*$/,
   zsh: /%\s*$/,
