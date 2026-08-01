@@ -459,11 +459,12 @@ function execViewCommandLine(sessionId: string, cmdLine: string): boolean {
   const arg = trimmed.slice(first.length).trim();
   // Let the shell render its Ctrl+C cancellation + fresh prompt before we
   // print the result, so the two writers don't interleave on the terminal.
+  // The command itself was already echoed by the shell, so only show the result.
   setTimeout(() => {
     void handler(sessionId, arg).then((result) => {
-      process.stdout.write(`\x1b[36m${first}\x1b[0m${trimmed.slice(first.length)}\r\n\x1b[2m${result}\x1b[0m\r\n`);
+      process.stdout.write(`\x1b[2m${result}\x1b[0m\r\n`);
     }).catch((err) => {
-      process.stdout.write(`\x1b[36m${first}\x1b[0m ${(err as Error).message}\r\n`);
+      process.stdout.write(`\x1b[31m${(err as Error).message}\x1b[0m\r\n`);
     });
   }, 60);
   return true;
