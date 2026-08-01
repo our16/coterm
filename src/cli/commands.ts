@@ -360,6 +360,24 @@ async function attachToSession(sessionId: string): Promise<void> {
   stdin.setRawMode(true);
   stdin.resume();
 
+  // Restore the console on any exit path (Ctrl+C, error, etc.) so the user's
+  // shell isn't left in raw mode (arrows would show as literal ^[A).
+  const restore = () => {
+    try {
+      stdin.removeListener('data', onData);
+      stdin.setRawMode(false);
+      stdin.pause();
+    } catch {
+      // ignore
+    }
+  };
+  const onSig = () => {
+    restore();
+    process.exit(0);
+  };
+  process.on('SIGINT', onSig);
+  process.on('SIGTERM', onSig);
+
   let done = false;
   let prefixA = false;
   const onData = (chunk: Buffer) => {
@@ -411,8 +429,9 @@ async function attachToSession(sessionId: string): Promise<void> {
   }
 
   clearInterval(poll);
-  stdin.removeListener('data', onData);
-  stdin.setRawMode(false);
+  restore();
+  process.removeListener('SIGINT', onSig);
+  process.removeListener('SIGTERM', onSig);
   process.stdout.write('\n');
 
   if (sessionEnded) {
