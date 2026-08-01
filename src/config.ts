@@ -45,38 +45,38 @@ export function ensureConfig(): CotermConfig {
 }
 
 export interface ActiveState {
-  pid: number;
   sessionId?: string;
 }
 
-export function writeActiveState(state: ActiveState): void {
+export function getWindowActivePath(pid: number): string {
+  return path.join(getConfigDir(), `active-${pid}`);
+}
+
+// Per-window active state: each window writes its own file keyed by its shell
+// PID, so one window activating never affects another window's prompt.
+export function writeActiveState(pid: number, sessionId?: string): void {
   try {
-    fs.mkdirSync(path.dirname(getActiveMarkerPath()), { recursive: true });
-    // Record the parent shell's PID (and its session) so the prompt and CLI
-    // only act on the window that ran activate (per-window, not global).
-    fs.writeFileSync(getActiveMarkerPath(), JSON.stringify(state));
+    const dir = getConfigDir();
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(getWindowActivePath(pid), JSON.stringify({ sessionId }));
   } catch {
     // ignore
   }
 }
 
-export function writeActiveMarker(): void {
-  writeActiveState({ pid: process.ppid ?? process.pid });
-}
-
-export function readActiveState(): ActiveState | null {
+export function readActiveState(pid: number): ActiveState | null {
   try {
-    if (!fs.existsSync(getActiveMarkerPath())) return null;
-    const parsed = JSON.parse(fs.readFileSync(getActiveMarkerPath(), 'utf8')) as ActiveState;
-    return parsed ?? null;
+    const p = getWindowActivePath(pid);
+    if (!fs.existsSync(p)) return null;
+    return JSON.parse(fs.readFileSync(p, 'utf8')) as ActiveState;
   } catch {
     return null;
   }
 }
 
-export function removeActiveMarker(): void {
+export function removeActiveState(pid: number): void {
   try {
-    fs.rmSync(getActiveMarkerPath(), { force: true });
+    fs.rmSync(getWindowActivePath(pid), { force: true });
   } catch {
     // ignore
   }

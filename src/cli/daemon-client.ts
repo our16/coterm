@@ -90,10 +90,10 @@ export async function resolveSession(sessionId?: string): Promise<string> {
   if (sessionId) return sessionId;
   const sessions = await listSessionsFromDaemon();
 
-  // Prefer this window's own session (recorded by activate with the parent PID).
+  // Prefer this window's own session (recorded in its per-window state file).
   const windowPid = process.ppid ?? process.pid;
-  const state = readActiveState();
-  if (state && state.pid === windowPid && state.sessionId) {
+  const state = readActiveState(windowPid);
+  if (state?.sessionId) {
     const own = sessions.find((s) => s.id === state.sessionId && s.state === 'running');
     if (own) return own.id;
   }

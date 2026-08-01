@@ -29,6 +29,7 @@ import {
   cmdConfigSet,
   cmdInstallPowershell,
   cmdInstallShell,
+  cmdDebug,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -322,6 +323,13 @@ export function buildCli(): Command {
   program.action(async () => {
     await cmdActivate();
   });
+
+  program
+    .command('debug')
+    .description('Print process diagnostics (pid, ppid, cwd)')
+    .action(() => {
+      cmdDebug();
+    });
 
   return program;
 }
