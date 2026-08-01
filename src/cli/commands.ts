@@ -456,13 +456,22 @@ function execViewCommandLine(sessionId: string, cmdLine: string): boolean {
   const first = trimmed.split(/\s+/)[0] ?? '';
   const handler = VIEW_COMMANDS[first];
   if (!handler) return false;
+  // Echo the line locally (the shell never saw it), then print the result.
+  process.stdout.write(`\r\n\x1b[36m${first}\x1b[0m${trimmed.slice(first.length)}\r\n`);
   const arg = trimmed.slice(first.length).trim();
   void handler(sessionId, arg).then((result) => {
-    process.stdout.write(`\r\n\x1b[2m[${first}]\x1b[0m ${result}\r\n`);
+    process.stdout.write(`\x1b[2m${result}\x1b[0m\r\n`);
   }).catch((err) => {
-    process.stdout.write(`\r\n\x1b[31m[${first} error]\x1b[0m ${(err as Error).message}\r\n`);
+    process.stdout.write(`\x1b[31m[${first} error]\x1b[0m ${(err as Error).message}\r\n`);
   });
   return true;
+}
+
+/** Whether the buffered input looks like a pending built-in view command. */
+function isPendingViewCommand(buf: string): boolean {
+  const t = buf.trim();
+  if (!t) return false;
+  return Object.keys(VIEW_COMMANDS).some((name) => t === name || t.startsWith(name + ' '));
 }
 
 /** Is the current terminal VT/ANSI capable (needed for interactive attach)? */
@@ -566,12 +575,15 @@ async function attachToSession(sessionId: string): Promise<void> {
       // (list/status/read/run/...), run it here and show the result instead
       // of sending it to the session shell — like `coterm <cmd>` typed here.
       const cmdLine = inputBuffer.replace(/[\r\x03]+$/, '');
-      const handled = /^[a-zA-Z]+\s/.test(cmdLine) || /^[a-zA-Z]+$/.test(cmdLine);
-      if (handled && execViewCommandLine(sessionId, cmdLine)) {
+      if (execViewCommandLine(sessionId, cmdLine)) {
         inputBuffer = '';
         return;
       }
       flushInput();
+    } else if (isPendingViewCommand(inputBuffer)) {
+      // A built-in command is being typed (e.g. `list`, `status <id>`). Hold
+      // the idle flush so we can decide at Enter — otherwise the partial line
+      // is sent to the shell before the user presses Enter.
     } else {
       flushTimer = setTimeout(flushInput, 40);
     }
