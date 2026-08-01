@@ -47,7 +47,9 @@ export function ensureConfig(): CotermConfig {
 export function writeActiveMarker(): void {
   try {
     fs.mkdirSync(path.dirname(getActiveMarkerPath()), { recursive: true });
-    fs.writeFileSync(getActiveMarkerPath(), String(process.pid));
+    // Record the parent shell's PID so the prompt only shows "(coterm) " in the
+    // window that ran activate (per-window, not global).
+    fs.writeFileSync(getActiveMarkerPath(), String(process.ppid ?? process.pid));
   } catch {
     // ignore
   }

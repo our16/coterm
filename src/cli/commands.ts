@@ -655,19 +655,24 @@ function generatePowershellIntegration(exePath: string): string {
 $CoTermExe = '${safeExe}'
 $CoTermShorthandNames = @('list','status','run','read','info','create','env','stop','deactivate','off','interrupt','close','record','replay','snapshot','restore')
 
-# Session-local prompt modifier: empty by default, set to '(coterm) ' only when
-# the 'coterm' function runs activate in THIS window. Never applied globally.
-$script:CoTermPromptModifier = ''
+# Prompt: show "(coterm) " only in the window whose shell PID matches the
+# active marker (written by 'coterm activate' with the parent shell PID).
+# Never global — other windows stay clean even when the daemon is running.
+$CoTermMarker = "$env:USERPROFILE\\.config\\coterm\\active"
 
-# Wrap the prompt: prepend the session-local modifier to the existing prompt
-# (conda's own prompt handles its "(base)" modifier, so no duplication).
 if (-not $script:CoTermPromptWrapped) {
   $script:CoTermPromptWrapped = $true
   if (Test-Path function:prompt) {
     $script:CoTermOriginalPrompt = (Get-Command prompt).ScriptBlock
   }
   function global:prompt {
-    $prefix = $script:CoTermPromptModifier
+    $prefix = ''
+    if (Test-Path $CoTermMarker) {
+      try {
+        $mid = [int](Get-Content $CoTermMarker -Raw)
+        if ($mid -eq $PID) { $prefix = '(coterm) ' }
+      } catch { }
+    }
     $base = if ($script:CoTermOriginalPrompt) {
       [string](& $script:CoTermOriginalPrompt)
     } else {
@@ -686,12 +691,6 @@ foreach ($n in $CoTermShorthandNames) {
 function global:coterm {
   & $CoTermExe @args
   $code = $LASTEXITCODE
-  $cmd = @($args)[0]
-  if ($null -eq $cmd -or $cmd -eq 'activate' -or $cmd -eq 'on') {
-    $script:CoTermPromptModifier = '(coterm) '
-  } elseif ($cmd -eq 'stop' -or $cmd -eq 'deactivate' -or $cmd -eq 'off') {
-    $script:CoTermPromptModifier = ''
-  }
   return $code
 }
 `;
