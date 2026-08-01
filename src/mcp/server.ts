@@ -3,12 +3,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { registerTerminalTools } from './tools.js';
 import { sessionAPI, type SessionAPI } from '../api/session-api.js';
 import { logger } from '../utils/logger.js';
+import { COTERM_NAME, VERSION } from '../version.js';
 
 export function buildMcpSdk(api: SessionAPI): McpServerSdk {
   const server = new McpServerSdk(
     {
-      name: 'coterm',
-      version: '0.3.0',
+      name: COTERM_NAME,
+      version: VERSION,
     },
     {
       capabilities: {

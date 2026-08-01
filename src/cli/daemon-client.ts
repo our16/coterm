@@ -65,6 +65,27 @@ export async function daemonAlive(): Promise<boolean> {
   }
 }
 
+/** Returns the running daemon's version, or null if it's stale/unreachable. */
+export async function getDaemonVersion(): Promise<string | null> {
+  try {
+    const { text, isError } = await callDaemon('system_info');
+    if (isError) return null;
+    const parsed = JSON.parse(text) as { version?: string };
+    return parsed.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Gracefully asks the running daemon to exit (best-effort). */
+export async function stopDaemonViaCli(): Promise<void> {
+  try {
+    await callDaemon('system_stop');
+  } catch {
+    // daemon may already be gone
+  }
+}
+
 export async function waitForDaemon(timeoutMs = 30000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {

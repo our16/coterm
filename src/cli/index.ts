@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { VERSION } from '../version.js';
 import {
   cmdStart,
   cmdMcp,
@@ -39,7 +40,7 @@ export function buildCli(): Command {
   program
     .name('coterm')
     .description('CoTerm — AI native terminal runtime. Manage shared terminal sessions for Humans, AI Agents, and MCP tools.')
-    .version('0.3.0');
+    .version(VERSION);
 
   program
     .command('activate')

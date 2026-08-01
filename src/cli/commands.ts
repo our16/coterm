@@ -8,8 +8,9 @@ import { startHttpMcpServer } from '../mcp/http-server.js';
 import { logger } from '../utils/logger.js';
 import { getTempDir, isWindows } from '../utils/platform.js';
 import { loadConfig, ensureConfig, getMcpHost, getMcpPort, getConfigPath, saveConfig, setConfigValue, writeActiveState, removeActiveState, getPowershellIntegrationPath, readActiveState } from '../config.js';
-import { callDaemon, daemonAlive, waitForDaemon, listSessionsFromDaemon, getDaemonUrl, resolveSession } from './daemon-client.js';
+import { callDaemon, daemonAlive, waitForDaemon, listSessionsFromDaemon, getDaemonUrl, resolveSession, getDaemonVersion, stopDaemonViaCli } from './daemon-client.js';
 import { cleanupOrphanedSessions } from '../cleanup.js';
+import { VERSION } from '../version.js';
 
 const PID_FILE = path.join(getTempDir(), 'coterm.pid');
 
@@ -339,7 +340,21 @@ export async function cmdActivate(options: { shell?: string; cwd?: string; name?
   ensureConfig();
 
   if (await daemonAlive()) {
-    console.log('CoTerm environment already active.');
+    const runningVersion = await getDaemonVersion();
+    if (runningVersion === null || runningVersion !== VERSION) {
+      console.log(`Running daemon is ${runningVersion ? `version ${runningVersion}` : 'stale'} — restarting to ${VERSION}...`);
+      await stopDaemonViaCli();
+      await new Promise((r) => setTimeout(r, 500));
+      spawnDaemonBackground();
+      if (!(await waitForDaemon(30000))) {
+        console.error('Timed out waiting for the CoTerm daemon to start.');
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`CoTerm daemon started: ${getDaemonUrl()}`);
+    } else {
+      console.log('CoTerm environment already active.');
+    }
   } else {
     console.log('Starting CoTerm daemon...');
     spawnDaemonBackground();

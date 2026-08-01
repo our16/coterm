@@ -1,4 +1,5 @@
 import type { SessionAPI } from '../api/session-api.js';
+import { VERSION } from '../version.js';
 
 export interface ToolResult {
   text: string;
@@ -15,6 +16,12 @@ export function err(message: string): ToolResult {
 
 export async function executeTool(api: SessionAPI, name: string, args: Record<string, unknown> = {}): Promise<ToolResult> {
   switch (name) {
+    case 'system_info':
+      return ok(JSON.stringify({ name: 'coterm', version: VERSION, pid: process.pid }));
+    case 'system_stop':
+      // Ask the daemon to exit so the caller can start a fresh one.
+      setTimeout(() => process.exit(0), 10);
+      return ok('stopping');
     case 'terminal_create': {
       const a = args as { name?: string; shell?: string; shellArgs?: string[]; cwd?: string; cols?: number; rows?: number; connector?: unknown };
       try {
