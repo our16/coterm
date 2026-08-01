@@ -1,4 +1,4 @@
-# CoTerm — AI 原生终端会话运行时
+# CoTerm — AI 原生终端运行时
 
 <div align="center">
 
@@ -8,7 +8,18 @@
 
 > **AI 与终端之间的运行时层。**
 
-CoTerm 是一个无头（headless）终端会话运行时：统一管理基于 PTY 的 shell 会话，并通过统一的 **Session API** 和 **MCP（Model Context Protocol）** 服务，把会话开放给人类与 AI。它**不是**又一个终端模拟器——而是任何终端、AI Agent、IDE 都可以接入的共享会话层。
+> CoTerm 不是又一个终端模拟器，而是面向人类、AI Agent 和 MCP 工具的**可编程共享终端会话运行时**。
+
+<div align="center">
+
+| 共享终端会话 | 人类 + AI 协作 | SSH / PowerShell / WSL / Docker |
+|---|---|---|
+| MCP 原生 | Session API | Prompt 检测 |
+| 屏幕缓冲 | 多 Agent | 会话回放 |
+
+</div>
+
+CoTerm 是一个无头（headless）运行时：统一管理基于 PTY 的 shell 会话，并通过统一的 **Session API** 和 **MCP（Model Context Protocol）** 服务，把会话开放给人类与 AI。任何终端、AI Agent、IDE 都接入同一个共享会话。
 
 ```
         Human（Tabby / WezTerm / VS Code）
@@ -24,6 +35,24 @@ CoTerm 是一个无头（headless）终端会话运行时：统一管理基于 P
       Session API      MCP (stdio)
       （进程内）         （AI Agent）
 ```
+
+### CoTerm 是什么
+
+| | |
+|---|---|
+| **共享会话（Shared Session）** | 一个终端会话被人类、多个 AI Agent、MCP 工具安全共享——而非每个使用者各开一个终端 |
+| **终端运行时（Terminal Runtime）** | 拥有 PTY、屏幕缓冲、Prompt 检测与会话生命周期 |
+| **AI 原生（AI Native）** | Agent 操作的是结构化的 Session API / MCP，而非原始按键流 |
+| **MCP 原生** | 23 个终端 + 工作区工具，基于标准 Model Context Protocol |
+
+### CoTerm 不是什么
+
+| | |
+|---|---|
+| ❌ 终端模拟器 | 渲染交给 Tabby / WezTerm / VS Code / Windows Terminal |
+| ❌ SSH 客户端 | SSH 只是众多连接器之一——与 PowerShell、WSL、Docker 同级 |
+| ❌ Shell | Shell 运行在 CoTerm 管理的会话内部 |
+| ❌ AI 编程 Agent | CoTerm 是 Agent 接入的运行时 |
 
 ---
 
