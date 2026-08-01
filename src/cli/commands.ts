@@ -212,25 +212,11 @@ export async function cmdCreate(options: { name?: string; shell?: string; cwd?: 
   }
 }
 
-function isPowerShellIntegrationInstalled(): boolean {
-  const integrationFile = getPowershellIntegrationPath();
-  if (!fs.existsSync(integrationFile)) return false;
-  const profilePaths = [
-    path.join(os.homedir(), 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1'),
-    path.join(os.homedir(), 'Documents', 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'),
-  ];
-  for (const p of profilePaths) {
-    if (fs.existsSync(p) && fs.readFileSync(p, 'utf8').includes('coterm\\powershell.ps1')) return true;
-  }
-  return false;
-}
-
 function ensurePowerShellIntegration(): void {
-  if (isPowerShellIntegrationInstalled()) return;
+  // Always rewrite the integration so the installed file tracks the latest
+  // template (idempotent — the profile line is only appended once).
   try {
     cmdInstallPowershell();
-    console.log('PowerShell integration installed automatically (prompt prefix + shorthand commands).');
-    console.log('Open a new terminal to see "(coterm) PS>".');
   } catch {
     // best-effort: integration is optional
   }
@@ -330,6 +316,23 @@ function ensureShellIntegration(): void {
   } catch {
     // best-effort: integration is optional
   }
+}
+
+export function cmdUsage(): void {
+  console.log('CoTerm — AI-native Terminal Session Runtime');
+  console.log('');
+  console.log('Usage:');
+  console.log('  coterm activate         Start the daemon and activate the environment');
+  console.log('  coterm stop             Stop the daemon / deactivate this window');
+  console.log('  coterm create           Create a session (--connector ssh|wsl|docker ...)');
+  console.log('  coterm list             List sessions (after activation)');
+  console.log('  coterm run --command "..."  Run a command in your session');
+  console.log('  coterm status           Show session state (cwd, tools, command graph)');
+  console.log('  coterm config           Show configuration');
+  console.log('  coterm install-powershell | install-shell   Set up the shell integration');
+  console.log('');
+  console.log('Run `coterm activate` to begin. After activation, shorthand commands');
+  console.log('(list, run, status, ...) become available in this window.');
 }
 
 export async function cmdActivate(options: { shell?: string; cwd?: string; name?: string } = {}): Promise<void> {
@@ -743,7 +746,7 @@ function global:coterm {
   & $CoTermExe @args
   $code = $LASTEXITCODE
   $cmd = @($args)[0]
-  if ($null -eq $cmd -or $cmd -eq 'activate' -or $cmd -eq 'on') {
+  if ($cmd -eq 'activate' -or $cmd -eq 'on') {
     CoTerm-EnableShorthands
     $script:CoTermShorthandsOn = $true
   } elseif ($cmd -eq 'stop' -or $cmd -eq 'deactivate' -or $cmd -eq 'off') {

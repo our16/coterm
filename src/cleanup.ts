@@ -8,7 +8,11 @@ import { logger } from './utils/logger.js';
 export function isProcessAlive(pid: number): boolean {
   if (isWindows()) {
     try {
-      const out = execSync(`tasklist /FI "PID eq ${pid}" /NH`, { stdio: 'pipe', encoding: 'utf8' });
+      const out = execSync(`tasklist /FI "PID eq ${pid}" /NH`, {
+        stdio: 'pipe',
+        encoding: 'utf8',
+        windowsHide: true,
+      });
       return out.includes(String(pid));
     } catch {
       return false;

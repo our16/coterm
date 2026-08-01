@@ -30,6 +30,7 @@ import {
   cmdInstallPowershell,
   cmdInstallShell,
   cmdDebug,
+  cmdUsage,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -320,8 +321,8 @@ export function buildCli(): Command {
       await cmdEnvStatus();
     });
 
-  program.action(async () => {
-    await cmdActivate();
+  program.action(() => {
+    cmdUsage();
   });
 
   program
