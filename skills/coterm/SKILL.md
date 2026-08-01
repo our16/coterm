@@ -30,16 +30,28 @@ your HTTP calls fail with a connection error. In that case, tell the human:
 
 ---
 
-## Endpoint
+## Discover the endpoint (read the port)
+
+The daemon port is **not hardcoded** — read it from the user config first:
+
+```bash
+cat ~/.config/coterm/config.json
+# -> { "mcp_server_port": 8377, "defaultShell": "..." }
+```
+
+- Endpoint = `http://127.0.0.1:<mcp_server_port>/cli`
+- If the file or key is absent, default to port `8377`.
+- You can also run `coterm config` (if `coterm` is on PATH) to see the effective endpoint.
+
+Then use `$PORT` in every request below (replace `8377` with the discovered value).
+
+### Request shape
 
 ```
-POST http://127.0.0.1:8377/cli
+POST http://127.0.0.1:<port>/cli
 Content-Type: application/json
 Body: { "tool": "<toolName>", "args": { ... } }
 ```
-
-Port is `mcp_server_port` in `~/.config/coterm/config.json` (default `8377`);
-check with `coterm config`.
 
 ### Response format
 
@@ -55,7 +67,9 @@ check with `coterm config`.
 ### curl template
 
 ```bash
-curl -s -X POST http://127.0.0.1:8377/cli \
+PORT=$(node -e "const c=require('$HOME/.config/coterm/config.json');process.stdout.write(String(c.mcp_server_port||8377))" 2>/dev/null || echo 8377)
+
+curl -s -X POST http://127.0.0.1:$PORT/cli \
   -H "Content-Type: application/json" \
   -d '{"tool":"terminal_list","args":{}}'
 ```
@@ -78,24 +92,24 @@ Do **not** poll or sleep. Follow this pattern:
 
 ```bash
 # list sessions
-curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+curl -s -X POST http://127.0.0.1:$PORT/cli -H "Content-Type: application/json" \
   -d '{"tool":"terminal_list","args":{}}'
 
 # create a new local session
-curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+curl -s -X POST http://127.0.0.1:$PORT/cli -H "Content-Type: application/json" \
   -d '{"tool":"terminal_create","args":{"name":"work"}}'
 # -> {"ok":true,"text":"{\"sessionId\":\"<id>\"}"}
 
 # run a command and wait for the prompt (blocking up to timeout ms)
-curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+curl -s -X POST http://127.0.0.1:$PORT/cli -H "Content-Type: application/json" \
   -d '{"tool":"terminal_run","args":{"sessionId":"<id>","command":"git status","timeout":30000}}'
 
 # read the last 30 lines
-curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+curl -s -X POST http://127.0.0.1:$PORT/cli -H "Content-Type: application/json" \
   -d '{"tool":"terminal_read","args":{"sessionId":"<id>","lines":30}}'
 
 # structured state (cwd, tools, full-screen app, last command, error)
-curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+curl -s -X POST http://127.0.0.1:$PORT/cli -H "Content-Type: application/json" \
   -d '{"tool":"terminal_status","args":{"sessionId":"<id>"}}'
 ```
 
