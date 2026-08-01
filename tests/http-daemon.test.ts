@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import * as http from 'node:http';
 import { startHttpMcpServer } from '../src/mcp/http-server.js';
 import { SessionAPI } from '../src/api/session-api.js';
 import { SessionManager } from '../src/core/session-manager.js';
@@ -13,12 +14,73 @@ function makeApi() {
   });
 }
 
+function cliPost(port: number, tool: string, args: Record<string, unknown> = {}): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({ tool, args });
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/cli',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+      },
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 async function connect(url: string, name: string) {
   const transport = new StreamableHTTPClientTransport(new URL(url));
   const client = new Client({ name, version: '0.0.1' });
   await client.connect(transport);
   return { client, transport };
 }
+
+describe('CoTerm HTTP daemon /cli endpoint (node:http, no fetch)', () => {
+  test('CLI-style JSON calls work against the shared daemon', async () => {
+    const api = makeApi();
+    const handle = await startHttpMcpServer(api, { port: 0 });
+    const { port } = handle;
+
+    const created = await cliPost(port, 'terminal_create', { name: 'cli-test' });
+    const createdBody = JSON.parse(created.body);
+    expect(created.status).toBe(200);
+    expect(createdBody.ok).toBe(true);
+    const { sessionId } = JSON.parse(createdBody.text);
+
+    const listed = await cliPost(port, 'terminal_list');
+    const sessions = JSON.parse(JSON.parse(listed.body).text);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe(sessionId);
+
+    const status = await cliPost(port, 'terminal_status', { sessionId });
+    const st = JSON.parse(JSON.parse(status.body).text);
+    expect(st.state).toBe('running');
+
+    const closed = await cliPost(port, 'terminal_close', { sessionId });
+    expect(JSON.parse(closed.body).ok).toBe(true);
+
+    await handle.stop();
+  });
+
+  test('unknown tool returns error result', async () => {
+    const api = makeApi();
+    const handle = await startHttpMcpServer(api, { port: 0 });
+    const res = await cliPost(handle.port, 'nope');
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(true);
+    expect(body.isError).toBe(true);
+    await handle.stop();
+  });
+});
 
 describe('CoTerm HTTP daemon (single-process shared sessions)', () => {
   test('two clients share one session registry', async () => {

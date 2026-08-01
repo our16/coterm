@@ -1,5 +1,4 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import * as http from 'node:http';
 import { getMcpHost, getMcpPort, loadConfig } from '../config.js';
 
 export interface DaemonResult {
@@ -12,25 +11,49 @@ export function getDaemonUrl(): string {
   return `http://${getMcpHost(config)}:${getMcpPort(config)}/mcp`;
 }
 
-export async function callDaemon(tool: string, args: Record<string, unknown> = {}): Promise<DaemonResult> {
-  const transport = new StreamableHTTPClientTransport(new URL(getDaemonUrl()), {
-    reconnectionOptions: {
-      maxRetries: 0,
-      initialReconnectionDelay: 0,
-      maxReconnectionDelay: 0,
-      reconnectionDelayGrowFactor: 0,
-    },
+interface CliResponse {
+  status: number;
+  data: string;
+}
+
+function postJson(host: string, port: number, body: unknown): Promise<CliResponse> {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = http.request(
+      {
+        host,
+        port,
+        path: '/cli',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, data }));
+        res.on('error', reject);
+      },
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
   });
-  const client = new Client({ name: 'coterm-cli', version: '0.2.0' });
-  try {
-    await client.connect(transport);
-    const result = await client.callTool({ name: tool, arguments: args });
-    const content = result.content as Array<{ text?: string }>;
-    const text = content.map((c) => c.text ?? '').join('');
-    return { text, isError: !!result.isError };
-  } finally {
-    await client.close().catch(() => {});
+}
+
+export async function callDaemon(tool: string, args: Record<string, unknown> = {}): Promise<DaemonResult> {
+  const config = loadConfig();
+  const { status, data } = await postJson(getMcpHost(config), getMcpPort(config), { tool, args });
+  if (status !== 200) {
+    throw new Error(`Daemon request failed (HTTP ${status})`);
   }
+  const parsed = JSON.parse(data) as { ok?: boolean; text?: string; isError?: boolean; error?: string };
+  if (!parsed.ok) {
+    throw new Error(parsed.error ?? 'daemon error');
+  }
+  return { text: parsed.text ?? '', isError: parsed.isError ?? false };
 }
 
 export async function daemonAlive(): Promise<boolean> {
@@ -42,7 +65,7 @@ export async function daemonAlive(): Promise<boolean> {
   }
 }
 
-export async function waitForDaemon(timeoutMs = 10000): Promise<boolean> {
+export async function waitForDaemon(timeoutMs = 30000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (await daemonAlive()) return true;

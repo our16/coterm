@@ -27,6 +27,7 @@ import {
   cmdWorkspaceStatus,
   cmdConfigShow,
   cmdConfigSet,
+  cmdInstallPowershell,
 } from './commands.js';
 
 export function buildCli(): Command {
@@ -139,6 +140,17 @@ export function buildCli(): Command {
     .command('stop').description('Stop a running CoTerm runtime by PID file').action(() => {
     cmdStop();
   });
+
+  program.command('deactivate').alias('off').description('Alias for coterm stop').action(() => {
+    cmdStop();
+  });
+
+  program
+    .command('install-powershell')
+    .description('Install the PowerShell prompt integration (shows "(coterm) " prefix while active)')
+    .action(() => {
+      cmdInstallPowershell();
+    });
 
   program
     .command('list')

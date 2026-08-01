@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { McpServer as McpServerSdk } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { buildMcpSdk } from './server.js';
+import { executeTool } from './executor.js';
 import { sessionAPI, type SessionAPI } from '../api/session-api.js';
 import { logger } from '../utils/logger.js';
 import { DEFAULT_MCP_HOST, DEFAULT_MCP_PORT } from '../config.js';
@@ -71,6 +72,24 @@ export async function startHttpMcpServer(
       }
 
       if (url.pathname !== path) {
+        // Local CLI endpoint (plain JSON over node:http — no undici/fetch needed)
+        if (url.pathname === '/cli' && req.method === 'POST') {
+          const body = (await readJsonBody(req)) as { tool?: string; args?: Record<string, unknown> } | undefined;
+          if (!body?.tool) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'missing tool' }));
+            return;
+          }
+          try {
+            const result = await executeTool(api, body.tool, body.args ?? {});
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, text: result.text, isError: result.isError ?? false }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: (err as Error).message }));
+          }
+          return;
+        }
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not found');
         return;
