@@ -318,11 +318,13 @@ stop              # 退出环境；提示符恢复
 
 ### Claude Skill
 
-现成的 Claude skill 在 [`skills/coterm/SKILL.md`](skills/coterm/SKILL.md)——教会 Claude 如何连接并驱动 CoTerm。安装：复制到你的 agent skills 目录：
+现成的 Claude skill 在 [`skills/coterm/SKILL.md`](skills/coterm/SKILL.md)——作为**纯 HTTP 客户端**驱动 CoTerm（通过 curl 调用 daemon 的 `/cli` 端点，无需 MCP 客户端配置）。安装：复制到你的 agent skills 目录：
 
 ```bash
 mkdir -p ~/.claude/skills && cp -r skills/coterm ~/.claude/skills/
 ```
+
+> 该 skill 只调用运行中的 daemon——先用 `coterm` 启动它。
 
 ---
 

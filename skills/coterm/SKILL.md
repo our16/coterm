@@ -1,179 +1,170 @@
 ---
 name: coterm
 description: >-
-  Use CoTerm, the AI-native terminal session runtime, to run commands in real,
-  shared terminal sessions. CoTerm owns long-lived PTY sessions (local
-  PowerShell/cmd/bash, SSH, WSL, Docker). Connect over MCP (HTTP or stdio) to
-  create/attach sessions, run commands, wait for prompt, read output, inspect
-  session state, and coordinate with a human. Use when you need to execute shell
-  commands, inspect terminal output, share an SSH/bastion session, or act on an
-  existing terminal session without re-login.
+  Call CoTerm, the AI-native terminal session runtime, over its local HTTP API
+  to run commands in real, shared terminal sessions. CoTerm owns long-lived PTY
+  sessions (local PowerShell/cmd/bash, SSH, WSL, Docker). Use this skill to
+  execute shell commands, read output, wait for command completion, inspect
+  session state, and attach to sessions a human is sharing. This skill is a pure
+  HTTP client — it does NOT start the daemon (a human starts it with `coterm`).
 ---
 
-# CoTerm — AI-native Terminal Session Runtime
+# CoTerm — HTTP client
 
-CoTerm is a **shared terminal session runtime**. It spawns and owns real PTY
-sessions (native shells) and exposes them to you over MCP. A human can share the
-same session — you attach to an existing session instead of starting a fresh
-shell every time, so state (SSH logins, env, cwd, installed tools) persists.
+CoTerm is a **shared terminal session runtime**. It owns real PTY sessions
+(native shells). You call its local HTTP endpoint over **curl** — no MCP client
+config needed. A human can share the same session, so you attach to an existing
+session instead of starting a fresh shell (SSH logins, env, cwd persist).
 
-- Not a terminal emulator, not an SSH client, not a shell. It is the session
-  layer between you and the shell.
-- **Human input always has priority** over your input.
+- Not a terminal, SSH client, or shell — it's the session layer.
+- **Human input always has priority** over your commands.
 
 ---
 
-## 1. Connect
+## Prerequisite: the daemon must be running
 
-CoTerm exposes an MCP server. Prefer the **HTTP daemon** (shared, long-lived) so
-sessions survive across your tool invocations.
+This skill **does not start or activate** CoTerm. If the daemon isn't running,
+your HTTP calls fail with a connection error. In that case, tell the human:
 
-### HTTP daemon (recommended — sessions persist across calls)
+> "CoTerm isn't running. Please run: `coterm` (or `coterm activate`), then I can continue."
 
-A human (or you) starts it once:
+---
+
+## Endpoint
+
+```
+POST http://127.0.0.1:8377/cli
+Content-Type: application/json
+Body: { "tool": "<toolName>", "args": { ... } }
+```
+
+Port is `mcp_server_port` in `~/.config/coterm/config.json` (default `8377`);
+check with `coterm config`.
+
+### Response format
+
+```json
+{ "ok": true, "text": "...", "isError": false }
+```
+
+- `ok: true` — the tool ran. Read `text`.
+- `text` may be **plain text** (run/read output) or **JSON** (list/status/history/create/workspace).
+  JSON-parse `text` when the tool returns structured data.
+- `isError: true` — the tool returned an error message in `text`; report it and stop.
+
+### curl template
 
 ```bash
-coterm            # starts the daemon + activates; logs show the endpoint
+curl -s -X POST http://127.0.0.1:8377/cli \
+  -H "Content-Type: application/json" \
+  -d '{"tool":"terminal_list","args":{}}'
 ```
-
-Then configure your MCP client:
-
-```json
-{
-  "mcpServers": {
-    "coterm": {
-      "type": "http",
-      "url": "http://127.0.0.1:8377/mcp"
-    }
-  }
-}
-```
-
-### stdio (single-shot, ad-hoc)
-
-```json
-{
-  "mcpServers": {
-    "coterm": {
-      "command": "coterm",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-Check the endpoint/port: `coterm config` (config lives at
-`~/.config/coterm/config.json`; port is `mcp_server_port`).
 
 ---
 
-## 2. Core workflow
+## Core workflow
 
-For almost any task, follow this pattern — do **not** poll or sleep:
+Do **not** poll or sleep. Follow this pattern:
 
-1. **List or create** a session:
-   - `terminal_list` — see existing sessions and attach to them.
-   - `terminal_create` — new session (`connector`: local | ssh | wsl | docker).
-2. **Attach** (if needed): `terminal_attach { sessionId, agent }` to register as
-   a participant on the shared session.
-3. **Run** a command: `terminal_run { sessionId, command, timeout }` — writes the
-   command + Enter **and waits for the next shell prompt** (no sleeping).
-4. **Read** output: `terminal_read { sessionId, lines }`.
-5. **Inspect** state: `terminal_status { sessionId }` → cwd, toolchains, whether a
-   full-screen app is running, command graph, participants.
-6. **Clean up**: `terminal_close` when done.
+1. `terminal_list` — find an existing session (reuse it if suitable).
+2. `terminal_create` — if you need a new session (connector: local | ssh | wsl | docker).
+3. `terminal_attach` — register as a participant on a shared session (optional but polite).
+4. `terminal_run` — write a command **and wait for the next shell prompt** (blocking; set `timeout`).
+5. `terminal_read` — read output.
+6. `terminal_status` — inspect cwd, toolchains, full-screen app, command graph before acting.
+7. `terminal_close` — clean up when done.
 
-### Example sequence
+### Example (curl)
 
+```bash
+# list sessions
+curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+  -d '{"tool":"terminal_list","args":{}}'
+
+# create a new local session
+curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+  -d '{"tool":"terminal_create","args":{"name":"work"}}'
+# -> {"ok":true,"text":"{\"sessionId\":\"<id>\"}"}
+
+# run a command and wait for the prompt (blocking up to timeout ms)
+curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+  -d '{"tool":"terminal_run","args":{"sessionId":"<id>","command":"git status","timeout":30000}}'
+
+# read the last 30 lines
+curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+  -d '{"tool":"terminal_read","args":{"sessionId":"<id>","lines":30}}'
+
+# structured state (cwd, tools, full-screen app, last command, error)
+curl -s -X POST http://127.0.0.1:8377/cli -H "Content-Type: application/json" \
+  -d '{"tool":"terminal_status","args":{"sessionId":"<id>"}}'
 ```
-terminal_list                         # find an existing session
-terminal_create { connector: { type: "ssh", host: "jump.company.com", user: "admin" } }
-terminal_run    { sessionId, command: "cd /var/www && git status", timeout: 30000 }
-terminal_read   { sessionId, lines: 30 }
-terminal_status { sessionId }        # cwd, tools, last command, error status
-terminal_close  { sessionId }
-```
-
-> If a full-screen app (`vim`, `top`, `less`) is running (`terminal_status` →
-> `fullScreenApp: true`), **do not** inject commands — the app owns the screen.
-> Ask the human or interrupt first.
 
 ---
 
-## 3. Tool reference
+## Tool reference (curl)
+
+All follow the same `POST /cli` shape with `{"tool":"<name>","args":{...}}`.
 
 ### Sessions
-| Tool | Purpose | Key args |
-|------|---------|----------|
-| `terminal_create` | Spawn a session | `connector{type,host,user,port,identity,distro,container}`, `shell`, `cwd`, `cols/rows` |
-| `terminal_list` | List sessions | — |
-| `terminal_status` | Structured state (cwd, toolchains, full-screen app, command graph, presence) | `sessionId` |
-| `terminal_close` | Kill the session | `sessionId` |
+| Tool | args | Notes |
+|------|------|-------|
+| `terminal_create` | `name`, `shell`, `cwd`, `cols/rows`, `connector:{type,host,user,port,identity,distro,container}` | returns `text` = `{"sessionId":"..."}` |
+| `terminal_list` | — | returns JSON array in `text` |
+| `terminal_status` | `sessionId` | returns JSON: `cwd`, `state`, `fullScreenApp`, `toolchains`, `commands`, `lastCommand`, `presence`, `participants`, `info` |
+| `terminal_close` | `sessionId` | kills the session |
 
 ### I/O
-| Tool | Purpose | Key args |
-|------|---------|----------|
-| `terminal_write` | Raw input (arbitrated; human wins) | `sessionId`, `data` |
-| `terminal_run` | Write command + wait for prompt | `sessionId`, `command`, `timeout` |
-| `terminal_wait_prompt` | Block until command finishes | `sessionId`, `timeout` |
-| `terminal_read` | Last N lines of output | `sessionId`, `lines` |
-| `terminal_interrupt` | Send Ctrl+C | `sessionId` |
-| `terminal_resize` | Resize PTY | `sessionId`, `cols`, `rows` |
+| Tool | args | Notes |
+|------|------|-------|
+| `terminal_write` | `sessionId`, `data` | raw input (human wins on conflict) |
+| `terminal_run` | `sessionId`, `command`, `timeout` | writes cmd+Enter, **blocks until prompt** (or `timeout` ms) |
+| `terminal_wait_prompt` | `sessionId`, `timeout` | blocks until the current command finishes |
+| `terminal_read` | `sessionId`, `lines` | last N lines, ANSI-stripped |
+| `terminal_interrupt` | `sessionId` | sends Ctrl+C |
+| `terminal_resize` | `sessionId`, `cols`, `rows` | resize PTY |
 
-### Collaboration
-| Tool | Purpose | Key args |
-|------|---------|----------|
-| `terminal_attach` | Join a shared session as a participant | `sessionId`, `agent` |
-| `terminal_detach` | Leave a shared session | `sessionId`, `agent` |
-| `terminal_history` | Recorded command graph | `sessionId`, `limit` |
+### Collaboration & recording
+| Tool | args |
+|------|------|
+| `terminal_attach` / `terminal_detach` | `sessionId`, `agent` |
+| `terminal_history` | `sessionId`, `limit` |
+| `terminal_recording` | `sessionId`, `action` (start/stop) |
+| `terminal_replay` | `sessionId`, `format` |
+| `terminal_snapshot` / `terminal_restore` | `sessionId` / `snapshot` |
 
-### Recording & state
-| Tool | Purpose | Key args |
-|------|---------|----------|
-| `terminal_recording` | Start/stop JSONL recording | `sessionId`, `action` |
-| `terminal_replay` | Read recorded events | `sessionId`, `format` |
-| `terminal_snapshot` | Capture config+screen+history | `sessionId` |
-| `terminal_restore` | Recreate a session from a snapshot | `snapshot` |
-
-### Workspaces (group several sessions)
-| Tool | Purpose |
-|------|---------|
-| `workspace_create` / `workspace_list` | Group sessions |
-| `workspace_add` / `workspace_remove` | Membership |
-| `workspace_run` | Run a command across all members |
-| `workspace_status` | State/presence/cwd of members |
+### Workspaces (group sessions)
+`workspace_create` (`name`), `workspace_list`, `workspace_add`/`remove` (`workspaceId`, `sessionId`), `workspace_run` (`workspaceId`, `command`), `workspace_status` (`workspaceId`).
 
 ---
 
-## 4. Best practices
+## Best practices
 
-- **Reuse sessions, don't recreate.** If `terminal_list` shows a suitable session
-  (e.g. an SSH/bastion session that already logged in), attach to it — you avoid
-  passwords, MFA, and re-initializing the environment.
-- **Wait, don't sleep.** `terminal_run` / `terminal_wait_prompt` block until the
+- **Reuse sessions, don't recreate.** If a session exists (e.g. an SSH/bastion
+  session already logged in), attach to it — avoid passwords/MFA/re-init.
+- **Wait, don't sleep.** `terminal_run`/`terminal_wait_prompt` block until the
   shell returns to a prompt. Never `sleep` between a command and reading output.
-- **Check state before acting.** `terminal_status` tells you cwd, available
-  toolchains, whether a full-screen app is running, and the last command's error
-  status. Use it instead of blind `pwd` / `which` / `sleep`.
-- **Respect the human.** A human sharing the session always has input priority;
-  they can Ctrl+C your command (`terminal_interrupt` on your side, or their own).
-- **SSH/WSL/Docker are just connectors.** `terminal_create` with a `connector`
-  gives you a session inside a remote host / container — same tools afterward.
-- **Output is ANSI-stripped.** `terminal_read` returns readable text; don't try
-  to parse escape codes.
-- **Long commands:** pick a `timeout` long enough (e.g. 60s for builds); if it
-  times out, `terminal_read` to see partial output, then decide.
+- **Set `timeout`** on `terminal_run` (e.g. 60s for builds). On timeout, read
+  output to see partial progress, then decide.
+- **Check state first.** `terminal_status` tells you cwd, available toolchains,
+  whether a full-screen app (`vim`/`top`/`less`) is running, and last command's
+  error. If `fullScreenApp` is true, **do not inject commands** — ask the human
+  or `terminal_interrupt` first.
+- **Respect the human.** A human sharing the session has input priority and can
+  Ctrl+C your command.
+- **SSH/WSL/Docker are connectors.** `terminal_create` with a `connector` lands
+  you inside a remote host/container; the same tools apply afterward.
+- **Output is ANSI-stripped** in `terminal_read` — don't parse escape codes.
 
 ---
 
-## 5. Troubleshooting
+## Troubleshooting
 
-- **"environment is not active"** — the daemon isn't running. Ask the human to
-  run `coterm` (or `coterm activate`).
-- **Session shows `closed`** — the shell exited; create a new one.
-- **Prompt wait timed out** — the command is still running (e.g. an interactive
-  program, a build, or a full-screen app). Read output; `terminal_interrupt` if
-  needed.
-- **No running session found** — `terminal_create` a new one (default shell is
-  auto-detected per platform: `pwsh`/`powershell`/`cmd` on Windows, `$SHELL` on
-  POSIX).
+- **`Connection refused` / `Could not connect`** — daemon not running. Tell the
+  human to run `coterm` (this skill never starts it).
+- **`isError: true`** — read `text` for the message (e.g. "Session not found").
+- **Session `closed`** — the shell exited; `terminal_create` a new one.
+- **`terminal_run` timed out** — the command is still running (build, interactive
+  program, full-screen app). `terminal_read` for partial output, or
+  `terminal_interrupt`.
+- **No running session** — `terminal_create` one (shell is auto-detected per
+  platform: `pwsh`/`powershell`/`cmd` on Windows, `$SHELL` on POSIX).

@@ -323,12 +323,14 @@ Optional per-user config lives at `~/.config/coterm/config.json` (`mcp_server_po
 ### Claude skill
 
 A ready-to-use Claude skill lives at [`skills/coterm/SKILL.md`](skills/coterm/SKILL.md) —
-it teaches Claude how to connect and drive CoTerm. Install by copying it into your agent's
-skills directory:
+it drives CoTerm as a **pure HTTP client** (calls the daemon's `/cli` endpoint via curl;
+no MCP client config needed). Install by copying it into your agent's skills directory:
 
 ```bash
 mkdir -p ~/.claude/skills && cp -r skills/coterm ~/.claude/skills/
 ```
+
+> The skill only calls the running daemon — start it first with `coterm`.
 
 ---
 
