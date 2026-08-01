@@ -278,32 +278,47 @@ await api.close(sessionId);
 
 ---
 
-## Windows Standalone Executable
+## Standalone Executables (Windows / Linux / macOS)
 
-Package a self-contained `coterm.exe` (no Node.js or bun needed):
+Package self-contained binaries — no Node.js or bun needed on the target machine:
 
 ```bash
-bun run package:windows
+bun run package:windows   # -> coterm.exe
+bun run package:linux     # -> coterm
+bun run package:macos     # -> coterm
 ```
 
-The build bundles the source to CJS (with `node-pty` kept external for its native ConPTY binaries) and wraps it with `pkg`. The resulting executable is verified end-to-end: MCP stdio connect, real ConPTY session creation, command execution, reading, recording, snapshots, and workspaces.
+Pushing a `v*` tag runs the release workflow on all three platforms (`windows-latest` / `ubuntu-latest` / `macos-latest`) and publishes **one GitHub Release** with `coterm-windows-x64.exe`, `coterm-linux-x64`, and `coterm-macos-x64`. Each binary embeds the Node.js runtime, all code, and node-pty's native binaries (ConPTY on Windows, forkpty on POSIX).
+
+### Shell integration (prompt prefix + shorthand commands)
+
+After `coterm activate`, the shell prompt shows a `(coterm) ` prefix and shorthand commands
+(`list`, `status`, `run`, `stop`, ...) work without the `coterm` prefix. It is **auto-installed
+on first activation** — or manually:
+
+| Platform | Command | Effect |
+|----------|---------|--------|
+| PowerShell (Windows) | `coterm install-powershell` | writes `~/.config/coterm/powershell.ps1`, sources it from `$PROFILE` |
+| bash / zsh (Linux/macOS) | `coterm install-shell` | writes `~/.config/coterm/coterm.sh`, sources it from `~/.bashrc` / `~/.zshrc` |
+
+```bash
+# any platform
+coterm            # auto-starts daemon (hidden) + activates; prompt gains "(coterm) "
+list              # shorthand — no "coterm" prefix needed
+run --command "echo hi"
+status
+stop              # deactivates; prompt reverts
+```
+
+> `read` and `history` shorthands are omitted on bash/zsh to avoid clashing with shell builtins (use `coterm read` / `coterm history`).
 
 ### Distribution
 
-**Ship only `coterm.exe`** — it is fully self-contained (Node.js runtime, all code, and node-pty ConPTY binaries are embedded). On each target machine:
+**Ship only the single binary** — it is fully self-contained. On each target machine just run it:
+`coterm` activates (and auto-installs the shell integration on first use). Restart the shell
+(or `source ~/.bashrc` / `. $PROFILE`) to see the `(coterm) ` prompt.
 
-```powershell
-# 1. Copy coterm.exe anywhere
-# 2. One-time setup for the "(coterm)" prompt prefix + shorthand commands
-.\coterm.exe install-powershell
-# 3. Activate (auto-starts the daemon in the background)
-.\coterm.exe          # prompt becomes "(coterm) PS>"
-list                  # shorthand, no "coterm" prefix needed
-run --command "echo hi"
-stop                  # exit, prompt reverts
-```
-
-Optional per-user config lives at `~/.config/coterm.json` (MCP port/host, default shell). Everything else is auto-generated at runtime.
+Optional per-user config lives at `~/.config/coterm/config.json` (`mcp_server_port`, `defaultShell`). Everything else is auto-generated at runtime.
 
 ---
 

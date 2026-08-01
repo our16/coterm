@@ -278,32 +278,43 @@ await api.close(sessionId);
 
 ---
 
-## Windows 独立可执行文件
+## 独立可执行文件（Windows / Linux / macOS）
 
-打包一个自包含的 `coterm.exe`（无需 Node.js 或 bun）：
+打包自包含的二进制——目标机器无需 Node.js 或 bun：
 
 ```bash
-bun run package:windows
+bun run package:windows   # -> coterm.exe
+bun run package:linux     # -> coterm
+bun run package:macos     # -> coterm
 ```
 
-构建流程：源码打包为 CJS（`node-pty` 保持外部以保留其 ConPTY 原生二进制），再通过 `pkg` 封装。产物已端到端验证：MCP stdio 连接、真实 ConPTY 会话创建、命令执行、读取、录制、快照与工作区。
+推送 `v*` tag 会在三个平台（`windows-latest` / `ubuntu-latest` / `macos-latest`）上并行构建，并在 **一个 GitHub Release** 中发布 `coterm-windows-x64.exe`、`coterm-linux-x64`、`coterm-macos-x64`。每个二进制内嵌 Node.js 运行时、全部代码和 node-pty 原生文件（Windows 用 ConPTY，POSIX 用 forkpty）。
+
+### Shell 集成（提示符前缀 + 简写命令）
+
+`coterm activate` 之后，shell 提示符会显示 `(coterm) ` 前缀，简写命令（`list`、`status`、`run`、`stop`...）无需 `coterm` 前缀即可使用。**首次激活会自动安装**，也可手动：
+
+| 平台 | 命令 | 效果 |
+|------|------|------|
+| PowerShell（Windows） | `coterm install-powershell` | 生成 `~/.config/coterm/powershell.ps1`，并从 `$PROFILE` 加载 |
+| bash / zsh（Linux/macOS） | `coterm install-shell` | 生成 `~/.config/coterm/coterm.sh`，并从 `~/.bashrc` / `~/.zshrc` 加载 |
+
+```bash
+# 任意平台
+coterm            # 自动后台启动 daemon + 激活；提示符出现 "(coterm) "
+list              # 简写命令——无需 "coterm" 前缀
+run --command "echo hi"
+status
+stop              # 退出环境；提示符恢复
+```
+
+> bash/zsh 下省略了 `read`、`history` 简写，避免与 shell 内建命令冲突（用 `coterm read` / `coterm history`）。
 
 ### 分发部署
 
-**只需分发 `coterm.exe`**——完全自包含（Node.js 运行时、全部代码、node-pty 的 ConPTY 原生文件均已内嵌）。在每台目标机器上：
+**只需分发单个二进制**——完全自包含。目标机器上直接运行 `coterm` 即可激活（首次会自动安装 shell 集成）；重启 shell（或 `source ~/.bashrc` / `. $PROFILE`）即可看到 `(coterm) ` 提示符。
 
-```powershell
-# 1. 把 coterm.exe 拷到任意目录
-# 2. 一次性设置："(coterm)" 前缀 + 简写命令
-.\coterm.exe install-powershell
-# 3. 激活（自动后台启动 daemon）
-.\coterm.exe          # 提示符变为 "(coterm) PS>"
-list                  # 简写命令，无需 "coterm" 前缀
-run --command "echo hi"
-stop                  # 退出，提示符恢复
-```
-
-可选的每用户配置在 `~/.config/coterm.json`（MCP 端口/主机、默认 shell）。其余文件全部运行时自动生成。
+可选的每用户配置在 `~/.config/coterm/config.json`（`mcp_server_port`、`defaultShell`）。其余文件全部运行时自动生成。
 
 ---
 
