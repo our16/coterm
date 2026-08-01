@@ -1,0 +1,37 @@
+#!/bin/sh
+# CoTerm pre-commit hook — blocks commits that contain obvious secrets.
+#
+# Scans staged file content for common credential patterns and private keys.
+# Install: `git config core.hooksPath hooks` (or copy to .git/hooks/pre-commit)
+#
+# Bypass only when intentionally committing a test fixture:
+#   SKIP_SECRET_SCAN=1 git commit ...
+# Or allow an exact line:
+#   git commit --no-verify   (not recommended)
+
+if [ "$SKIP_SECRET_SCAN" = "1" ]; then
+  exit 0
+fi
+
+# Patterns: API keys, GitHub tokens, AWS keys, private keys, generic auth headers
+PATTERNS='(sk-[A-Za-z0-9]{20,})|(ghp_[A-Za-z0-9]{20,})|(gho_[A-Za-z0-9]{20,})|(AKIA[0-9A-Z]{16})|(ASIA[0-9A-Z]{16})|(xox[baprs]-[A-Za-z0-9-]{10,})|(-----BEGIN (RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----)|(api[_-]?key[[:space:]]*[:=][[:space:]]*["'"'"']?[^[:space:]"'"'"']{16,})|(password[[:space:]]*[:=][[:space:]]*["'"'"']?[^[:space:]"'"'"']{8,})|(Authorization[[:space:]]*[:=][[:space:]]*["'"'"'](Basic|Bearer)[[:space:]]+[^"'"'"']{12,})'
+
+FILES=$(git diff --cached --name-only --diff-filter=ACM)
+if [ -z "$FILES" ]; then
+  exit 0
+fi
+
+STAGED=$(git diff --cached --diff-filter=ACM | grep -E '^\+' | grep -v '^+++')
+VIOLATION=$(printf '%s\n' "$STAGED" | grep -E "$PATTERNS" | head -n 5)
+
+if [ -n "$VIOLATION" ]; then
+  echo "SECRET SCAN FAILED: potential credential detected in staged changes."
+  echo ""
+  echo "$VIOLATION"
+  echo ""
+  echo "If this is a real secret, remove it before committing."
+  echo "To bypass (not recommended): SKIP_SECRET_SCAN=1 git commit ..."
+  exit 1
+fi
+
+exit 0

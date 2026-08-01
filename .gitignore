@@ -4,4 +4,32 @@ bun.lockb
 *.exe
 coterm.exe
 
+# Local editor / tooling config (may contain secrets)
 opencode.json
+.vscode/
+.idea/
+*.local.json
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_dsa
+id_ed25519
+*.ppk
+credentials
+secrets.*
+.credential
+
+# Logs
+*.log
+err.log
+
+# OS
+Thumbs.db
+.DS_Store
