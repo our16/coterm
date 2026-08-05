@@ -2,6 +2,7 @@
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { createPasteDecoder } from './paste-bridge.js';
 import { sessionAPI } from '../api/session-api.js';
 import { startMcpServer, CoTermMcpServer } from '../mcp/server.js';
 import { startHttpMcpServer } from '../mcp/http-server.js';
@@ -420,11 +421,19 @@ async function attachToSession(sessionId: string): Promise<void> {
   stdin.setRawMode(true);
   stdin.resume();
 
+  // Transparent byte bridge to the real terminal. We enable bracketed paste so
+  // pasted text arrives wrapped; the decoder strips the wrapper (keeps UTF-8
+  // intact across chunks) and returns clean keystrokes + atomic pastes. The
+  // local terminal does all rendering and key/paste handling.
+  const pasteBridge = createPasteDecoder();
+  process.stdout.write('\x1b[?2004h');
+
   // Restore the console on any exit path (Ctrl+C, error, etc.) so the user's
   // shell isn't left in raw mode (arrows would show as literal ^[A).
   const restore = () => {
     try {
       flushInput();
+      process.stdout.write('\x1b[?2004l');
       stdin.removeListener('data', onData);
       stdin.setRawMode(false);
       stdin.pause();
@@ -459,9 +468,11 @@ async function attachToSession(sessionId: string): Promise<void> {
     callDaemon('terminal_write', { sessionId, data: chunk, requester: 'human' }).catch(() => {});
   };
 
-  const onData = (chunk: Buffer) => {
-    const s = chunk.toString('utf8');
-    for (const ch of s) {
+  // Buffer of decoded text not yet consumed by the state machine. Escape/paste
+  // markers can span data events, so we scan a pending string, never a single
+  // chunk.
+  const queueKeystrokes = (text: string) => {
+    for (const ch of text) {
       if (prefixA) {
         if (ch === 'q') {
           done = true;
@@ -476,6 +487,9 @@ async function attachToSession(sessionId: string): Promise<void> {
       }
       inputBuffer += ch;
     }
+  };
+
+  const scheduleFlush = () => {
     if (flushTimer) {
       clearTimeout(flushTimer);
       flushTimer = null;
@@ -485,6 +499,15 @@ async function attachToSession(sessionId: string): Promise<void> {
     } else {
       flushTimer = setTimeout(flushInput, 40);
     }
+  };
+
+  const onData = (chunk: Buffer) => {
+    const { keystrokes, pastes } = pasteBridge.push(chunk);
+    if (pastes.length > 0) {
+      callDaemon('terminal_write', { sessionId, data: pastes.join(''), requester: 'human' }).catch(() => {});
+    }
+    queueKeystrokes(keystrokes);
+    scheduleFlush();
   };
   stdin.on('data', onData);
 
