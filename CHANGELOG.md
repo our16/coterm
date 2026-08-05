@@ -2,6 +2,18 @@
 
 All notable changes to CoTerm are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] - 2026-08-05
+
+### Fixes
+
+- Interactive attach (`coterm run`/`activate` view) no longer garbles pasted text.
+  Replaced per-chunk `toString('utf8')` forwarding with a transparent byte bridge
+  (`src/cli/paste-bridge.ts`): bracketed paste + `StringDecoder` keep multi-byte
+  UTF-8 (Chinese/emoji) intact across chunk boundaries, and Ctrl+V now behaves
+  identically to right-click paste. Rendering and paste are left to the real
+  terminal (Windows Terminal), matching the design doc's "CoTerm is not a renderer"
+  positioning.
+
 ## [0.3.0] - 2026-08-01
 
 ### conda-activate style environment
