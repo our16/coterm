@@ -521,24 +521,79 @@ async function attachToSession(sessionId: string): Promise<void> {
   // Live output: SSE push from the daemon instead of polling. The daemon
   // subscribes to the session's output events and pushes each chunk as it
   // arrives, so what AI writes and what the shell echoes shows up immediately.
-  const unsubStream = streamSessionOutput(
-    sessionId,
-    offset,
-    (chunk) => {
-      if (chunk.text) {
-        process.stdout.write(chunk.text);
-        offset = chunk.offset;
-      }
-    },
-    (err) => {
-      if (err) {
-        console.error(`\n[stream error] ${err.message}`);
-      }
-      done = true;
-    },
-  );
+  //
+  // The stream can drop silently (e.g. the daemon restarts to pick up a
+  // rebuilt binary, or the local socket hiccups). Without reconnecting, the
+  // view freezes: output produced while disconnected is only delivered to the
+  // sockets open at that moment, so it wouldn't appear until the user
+  // re-attached. We reconnect with backoff and re-sync the baseline offset so
+  // nothing is lost and no user action is needed.
+  const stream = {
+    closed: false as boolean,
+    unsub: null as (() => void) | null,
+  };
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let attempt = 0;
+  let notFoundStreak = 0;
+
+  const connectStream = async () => {
+    // Re-sync the baseline so output produced while we were disconnected
+    // (or before the daemon restarted) is caught up on reconnect.
+    try {
+      const r = await callDaemon('terminal_raw', { sessionId, from: 0 });
+      offset = (JSON.parse(r.text) as { offset: number }).offset;
+    } catch {
+      // daemon not reachable yet; keep the last offset
+    }
+    if (done || stream.closed) return;
+
+    const backoff = Math.min(500 * 2 ** attempt, 8000);
+    attempt += 1;
+    const sub = streamSessionOutput(
+      sessionId,
+      offset,
+      (chunk) => {
+        if (chunk.text) {
+          process.stdout.write(chunk.text);
+          offset = chunk.offset;
+        }
+        attempt = 0; // healthy stream resets the backoff
+        notFoundStreak = 0;
+      },
+      (err) => {
+        if (done || stream.closed) return;
+        const msg = err?.message ?? '';
+        // The session lives in the daemon's memory only; a daemon restart
+        // (e.g. a version bump) destroys it. Reconnecting to a session that
+        // no longer exists would spin on 404 forever — give up gracefully.
+        if (msg.includes('404') || msg.includes('not found')) {
+          notFoundStreak += 1;
+          if (notFoundStreak >= 3) {
+            stream.unsub?.();
+            stream.unsub = null;
+            console.error(
+              `\n[stream] session ${sessionId} is gone (daemon restarted and sessions are not persisted).` +
+                ` Recreate the session with: coterm create`,
+            );
+            done = true;
+            return;
+          }
+        }
+        console.error(`\n[stream] lost connection (${msg || 'unknown'}); reconnecting...`);
+        stream.unsub?.();
+        stream.unsub = null;
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => void connectStream(), backoff);
+      },
+    );
+    stream.unsub = sub;
+  };
+  void connectStream();
 
   // Watchdog: detect the session shell exiting (e.g. the user typed `exit`).
+  // A transient daemon error must NOT detach the view — the SSE reconnect loop
+  // keeps re-connecting until the daemon is back. Only a confirmed `closed`
+  // state (the shell exited) ends the view.
   const watchdog = setInterval(async () => {
     try {
       const status = await callDaemon('terminal_status', { sessionId });
@@ -548,7 +603,7 @@ async function attachToSession(sessionId: string): Promise<void> {
         done = true;
       }
     } catch {
-      done = true;
+      // daemon down — reconnect keeps retrying; don't detach
     }
   }, 2000);
 
@@ -556,7 +611,9 @@ async function attachToSession(sessionId: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
 
-  unsubStream();
+  stream.closed = true;
+  stream.unsub?.();
+  if (reconnectTimer) clearTimeout(reconnectTimer);
   clearInterval(watchdog);
   process.stdout.removeListener('resize', onResize);
   restore();
